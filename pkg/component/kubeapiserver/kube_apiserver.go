@@ -544,7 +544,7 @@ func (k *kubeAPIServer) Deploy(ctx context.Context) error {
 		}
 	}
 
-	k.createStaticPodRound = true
+	k.createStaticPodRound = false
 	if err := k.reconcileDeployment(
 		ctx,
 		deployment,
