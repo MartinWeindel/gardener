@@ -354,7 +354,7 @@ func (k *kubeAPIServer) reconcileTLSSNISecrets(ctx context.Context) ([]tlsSNISec
 		case sni.SecretName != nil:
 			sniSecret := tlsSNISecret{secretName: *sni.SecretName, domainPatterns: sni.DomainPatterns}
 			secret := &corev1.Secret{}
-			if k.values.CreateStaticPodScript {
+			if k.createStaticPodRound {
 				key := client.ObjectKey{Name: *sni.SecretName, Namespace: k.namespace}
 				if k.client.Client().Get(ctx, key, secret) == nil {
 					sniSecret.data = secret.Data

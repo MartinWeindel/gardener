@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 
@@ -1385,9 +1386,7 @@ func (k *kubeAPIServer) handleWatchdogSidecar(deployment *appsv1.Deployment, con
 }
 
 func (k *kubeAPIServer) addVolume(deployment *appsv1.Deployment, volume corev1.Volume, data any) {
-	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, volume)
-	k.volumeData = map[string][]byte{}
-	if k.values.CreateStaticPodScript {
+	if k.createStaticPodRound {
 		switch typedData := data.(type) {
 		case map[string]string:
 			for key, v := range typedData {
@@ -1400,6 +1399,18 @@ func (k *kubeAPIServer) addVolume(deployment *appsv1.Deployment, volume corev1.V
 		default:
 			k.volumeDataErr = errors.Join(k.volumeDataErr, fmt.Errorf("unexpected data for volume %s", volume.Name))
 		}
+		typ := corev1.HostPathDirectoryOrCreate
+		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+			Name: volume.Name,
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: path.Join(staticPodsVolumesPath, volume.Name),
+					Type: &typ,
+				},
+			},
+		})
+	} else {
+		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, volume)
 	}
 }
 

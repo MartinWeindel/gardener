@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"github.com/gardener/gardener/pkg/controllerutils"
 	"net"
+	"path"
 	"sigs.k8s.io/yaml"
 	"time"
 
@@ -96,6 +97,9 @@ const (
 	UserNameVPNSeedClient = "vpn-seed-client"
 
 	userName = "system:kube-apiserver:kubelet"
+
+	staticPodsManifestsPath = "/etc/kubernetes/manifests"
+	staticPodsVolumesPath   = staticPodsManifestsPath + "/volumes"
 )
 
 // Interface contains functions for a kube-apiserver deployer.
@@ -380,8 +384,10 @@ type kubeAPIServer struct {
 	namespace      string
 	secretsManager secretsmanager.Interface
 	values         Values
-	volumeData     map[string][]byte
-	volumeDataErr  error
+
+	createStaticPodRound bool
+	volumeData           map[string][]byte
+	volumeDataErr        error
 }
 
 func (k *kubeAPIServer) Deploy(ctx context.Context) error {
@@ -538,6 +544,7 @@ func (k *kubeAPIServer) Deploy(ctx context.Context) error {
 		}
 	}
 
+	k.createStaticPodRound = true
 	if err := k.reconcileDeployment(
 		ctx,
 		deployment,
@@ -567,6 +574,7 @@ func (k *kubeAPIServer) Deploy(ctx context.Context) error {
 
 	if k.values.CreateStaticPodScript {
 		dummyDeployment := k.emptyDeployment()
+		k.createStaticPodRound = true
 		k.volumeData = map[string][]byte{}
 		k.volumeDataErr = nil
 		if err := k.reconcileDeploymentFunc(
@@ -757,28 +765,29 @@ func getLabels() map[string]string {
 }
 
 func (k *kubeAPIServer) writeStaticPodScript(ctx context.Context, podSpec *corev1.PodSpec, volumeData map[string][]byte) error {
-	name := k.values.NamePrefix + v1beta1constants.DeploymentNameKubeAPIServer
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "staticpod-" + name, Namespace: k.namespace}}
+	podName := k.values.NamePrefix + v1beta1constants.DeploymentNameKubeAPIServer
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "staticpod-" + podName, Namespace: k.namespace}}
 
 	buf := &bytes.Buffer{}
 	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client.Client(), cm, func() error {
 		pod := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: k.namespace},
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
+			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: k.namespace},
 			Spec:       *podSpec,
 		}
 		podYaml, err := yaml.Marshal(pod)
 		if err != nil {
 			return fmt.Errorf("marshalling pod failed: %w", err)
 		}
-		filename := "/etc/kubernetes/manifests/" + name
-		if _, err := buf.WriteString("mkdir -p /etc/kubernetes/manifests/volumes\n"); err != nil {
+		filename := path.Join(staticPodsManifestsPath, podName)
+		if _, err := buf.WriteString("mkdir -p " + staticPodsVolumesPath + "\n"); err != nil {
 			return err
 		}
 		if err := appendFile(buf, filename, []byte(podYaml)); err != nil {
 			return err
 		}
 		for name, data := range volumeData {
-			if err := appendFile(buf, "/etc/kubernetes/manifests/volumes/"+name, data); err != nil {
+			if err := appendFile(buf, path.Join(staticPodsVolumesPath, name), data); err != nil {
 				return err
 			}
 		}
