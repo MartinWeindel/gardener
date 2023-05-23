@@ -212,6 +212,10 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 	deployment.Labels = utils.MergeStringMaps(GetLabels(), map[string]string{
 		resourcesv1alpha1.HighAvailabilityConfigType: resourcesv1alpha1.HighAvailabilityConfigTypeServer,
 	})
+	priorityClassName := k.values.PriorityClassName
+	if k.createStaticPodRound {
+		priorityClassName = "system-node-critical"
+	}
 	deployment.Spec = appsv1.DeploymentSpec{
 		MinReadySeconds:      30,
 		RevisionHistoryLimit: pointer.Int32(2),
@@ -240,7 +244,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 			},
 			Spec: corev1.PodSpec{
 				AutomountServiceAccountToken:  pointer.Bool(false),
-				PriorityClassName:             k.values.PriorityClassName,
+				PriorityClassName:             priorityClassName,
 				DNSPolicy:                     corev1.DNSClusterFirst,
 				RestartPolicy:                 corev1.RestartPolicyAlways,
 				SchedulerName:                 corev1.DefaultSchedulerName,
