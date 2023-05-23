@@ -193,6 +193,7 @@ func NewKubeAPIServer(
 			Version:                             targetVersion,
 			VPN:                                 vpnConfig,
 			WatchCacheSizes:                     watchCacheSizes,
+			CreateStaticPodScript:               true,
 		},
 	), nil
 }

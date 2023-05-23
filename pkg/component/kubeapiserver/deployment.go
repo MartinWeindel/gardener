@@ -16,6 +16,7 @@ package kubeapiserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -133,9 +134,9 @@ func (k *kubeAPIServer) emptyDeployment() *appsv1.Deployment {
 	return &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: k.values.NamePrefix + v1beta1constants.DeploymentNameKubeAPIServer, Namespace: k.namespace}}
 }
 
-func (k *kubeAPIServer) reconcileDeployment(
-	ctx context.Context,
+func (k *kubeAPIServer) reconcileDeploymentFunc(
 	deployment *appsv1.Deployment,
+	createStaticPod bool,
 	serviceAccount *corev1.ServiceAccount,
 	configMapAuditPolicy *corev1.ConfigMap,
 	configMapAdmissionConfigs *corev1.ConfigMap,
@@ -207,287 +208,349 @@ func (k *kubeAPIServer) reconcileDeployment(
 		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameServiceAccountKey)
 	}
 
-	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client.Client(), deployment, func() error {
-		deployment.Labels = utils.MergeStringMaps(GetLabels(), map[string]string{
-			resourcesv1alpha1.HighAvailabilityConfigType: resourcesv1alpha1.HighAvailabilityConfigTypeServer,
-		})
-		deployment.Spec = appsv1.DeploymentSpec{
-			MinReadySeconds:      30,
-			RevisionHistoryLimit: pointer.Int32(2),
-			Replicas:             k.values.Autoscaling.Replicas,
-			Selector:             &metav1.LabelSelector{MatchLabels: getLabels()},
-			Strategy: appsv1.DeploymentStrategy{
-				Type: appsv1.RollingUpdateDeploymentStrategyType,
-				RollingUpdate: &appsv1.RollingUpdateDeployment{
-					MaxSurge:       &maxSurge,
-					MaxUnavailable: &maxUnavailable,
-				},
+	deployment.Labels = utils.MergeStringMaps(GetLabels(), map[string]string{
+		resourcesv1alpha1.HighAvailabilityConfigType: resourcesv1alpha1.HighAvailabilityConfigTypeServer,
+	})
+	deployment.Spec = appsv1.DeploymentSpec{
+		MinReadySeconds:      30,
+		RevisionHistoryLimit: pointer.Int32(2),
+		Replicas:             k.values.Autoscaling.Replicas,
+		Selector:             &metav1.LabelSelector{MatchLabels: getLabels()},
+		Strategy: appsv1.DeploymentStrategy{
+			Type: appsv1.RollingUpdateDeploymentStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateDeployment{
+				MaxSurge:       &maxSurge,
+				MaxUnavailable: &maxUnavailable,
 			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: utils.MergeStringMaps(GetLabels(), map[string]string{
-						v1beta1constants.LabelNetworkPolicyToDNS:                                                                                                       v1beta1constants.LabelNetworkPolicyAllowed,
-						v1beta1constants.LabelNetworkPolicyToPublicNetworks:                                                                                            v1beta1constants.LabelNetworkPolicyAllowed,
-						v1beta1constants.LabelNetworkPolicyToPrivateNetworks:                                                                                           v1beta1constants.LabelNetworkPolicyAllowed,
-						"networking.resources.gardener.cloud/to-" + v1beta1constants.LabelNetworkPolicyWebhookTargets:                                                  v1beta1constants.LabelNetworkPolicyAllowed,
-						gardenerutils.NetworkPolicyLabel(k.values.NamePrefix+etcdconstants.ServiceName(v1beta1constants.ETCDRoleMain), etcdconstants.PortEtcdClient):   v1beta1constants.LabelNetworkPolicyAllowed,
-						gardenerutils.NetworkPolicyLabel(k.values.NamePrefix+etcdconstants.ServiceName(v1beta1constants.ETCDRoleEvents), etcdconstants.PortEtcdClient): v1beta1constants.LabelNetworkPolicyAllowed,
-						// TODO(rfranzke): Remove these labels after v1.74 has been released.
-						gardenerutils.NetworkPolicyLabel(k.values.NamePrefix+resourcemanagerconstants.ServiceName, resourcemanagerconstants.ServerPort): v1beta1constants.LabelNetworkPolicyAllowed,
-						gardenerutils.NetworkPolicyLabel(vpaconstants.AdmissionControllerServiceName, vpaconstants.AdmissionControllerPort):             v1beta1constants.LabelNetworkPolicyAllowed,
-					}),
-				},
-				Spec: corev1.PodSpec{
-					AutomountServiceAccountToken:  pointer.Bool(false),
-					PriorityClassName:             k.values.PriorityClassName,
-					DNSPolicy:                     corev1.DNSClusterFirst,
-					RestartPolicy:                 corev1.RestartPolicyAlways,
-					SchedulerName:                 corev1.DefaultSchedulerName,
-					TerminationGracePeriodSeconds: pointer.Int64(30),
-					Containers: []corev1.Container{{
-						Name:                     ContainerNameKubeAPIServer,
-						Image:                    k.values.Images.KubeAPIServer,
-						ImagePullPolicy:          corev1.PullIfNotPresent,
-						Command:                  k.computeKubeAPIServerCommand(),
-						TerminationMessagePath:   corev1.TerminationMessagePathDefault,
-						TerminationMessagePolicy: corev1.TerminationMessageReadFile,
-						Ports: []corev1.ContainerPort{{
-							Name:          "https",
-							ContainerPort: kubeapiserverconstants.Port,
-							Protocol:      corev1.ProtocolTCP,
-						}},
-						Resources: k.values.Autoscaling.APIServerResources,
-						LivenessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{
-									Path:   "/livez",
-									Scheme: corev1.URISchemeHTTPS,
-									Port:   intstr.FromInt(kubeapiserverconstants.Port),
-									HTTPHeaders: []corev1.HTTPHeader{{
-										Name:  "Authorization",
-										Value: "Bearer " + healthCheckToken,
-									}},
-								},
-							},
-							SuccessThreshold:    1,
-							FailureThreshold:    3,
-							InitialDelaySeconds: 15,
-							PeriodSeconds:       10,
-							TimeoutSeconds:      15,
-						},
-						ReadinessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{
-									Path:   "/readyz",
-									Scheme: corev1.URISchemeHTTPS,
-									Port:   intstr.FromInt(kubeapiserverconstants.Port),
-									HTTPHeaders: []corev1.HTTPHeader{{
-										Name:  "Authorization",
-										Value: "Bearer " + healthCheckToken,
-									}},
-								},
-							},
-							SuccessThreshold:    1,
-							FailureThreshold:    3,
-							InitialDelaySeconds: 10,
-							PeriodSeconds:       10,
-							TimeoutSeconds:      15,
-						},
-						VolumeMounts: []corev1.VolumeMount{
-							{
-								Name:      volumeNameAdmissionConfiguration,
-								MountPath: volumeMountPathAdmissionConfiguration,
-							},
-							{
-								Name:      volumeNameAdmissionKubeconfigSecrets,
-								MountPath: volumeMountPathAdmissionKubeconfigSecrets,
-							},
-							{
-								Name:      volumeNameCA,
-								MountPath: volumeMountPathCA,
-							},
-							{
-								Name:      volumeNameCAClient,
-								MountPath: volumeMountPathCAClient,
-							},
-							{
-								Name:      volumeNameCAEtcd,
-								MountPath: volumeMountPathCAEtcd,
-							},
-							{
-								Name:      volumeNameCAFrontProxy,
-								MountPath: volumeMountPathCAFrontProxy,
-							},
-							{
-								Name:      volumeNameEtcdClient,
-								MountPath: volumeMountPathEtcdClient,
-							},
-							{
-								Name:      volumeNameServer,
-								MountPath: volumeMountPathServer,
-							},
-							{
-								Name:      volumeNameServiceAccountKey,
-								MountPath: volumeMountPathServiceAccountKey,
-							},
-							{
-								Name:      volumeNameServiceAccountKeyBundle,
-								MountPath: volumeMountPathServiceAccountKeyBundle,
-							},
-							{
-								Name:      volumeNameStaticToken,
-								MountPath: volumeMountPathStaticToken,
-							},
-							{
-								Name:      volumeNameKubeAggregator,
-								MountPath: volumeMountPathKubeAggregator,
-							},
-							{
-								Name:      volumeNameEtcdEncryptionConfig,
-								MountPath: volumeMountPathEtcdEncryptionConfig,
-								ReadOnly:  true,
-							},
-						},
+		},
+		Template: corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels: utils.MergeStringMaps(GetLabels(), map[string]string{
+					v1beta1constants.LabelNetworkPolicyToDNS:                                                                                                       v1beta1constants.LabelNetworkPolicyAllowed,
+					v1beta1constants.LabelNetworkPolicyToPublicNetworks:                                                                                            v1beta1constants.LabelNetworkPolicyAllowed,
+					v1beta1constants.LabelNetworkPolicyToPrivateNetworks:                                                                                           v1beta1constants.LabelNetworkPolicyAllowed,
+					"networking.resources.gardener.cloud/to-" + v1beta1constants.LabelNetworkPolicyWebhookTargets:                                                  v1beta1constants.LabelNetworkPolicyAllowed,
+					gardenerutils.NetworkPolicyLabel(k.values.NamePrefix+etcdconstants.ServiceName(v1beta1constants.ETCDRoleMain), etcdconstants.PortEtcdClient):   v1beta1constants.LabelNetworkPolicyAllowed,
+					gardenerutils.NetworkPolicyLabel(k.values.NamePrefix+etcdconstants.ServiceName(v1beta1constants.ETCDRoleEvents), etcdconstants.PortEtcdClient): v1beta1constants.LabelNetworkPolicyAllowed,
+					// TODO(rfranzke): Remove these labels after v1.74 has been released.
+					gardenerutils.NetworkPolicyLabel(k.values.NamePrefix+resourcemanagerconstants.ServiceName, resourcemanagerconstants.ServerPort): v1beta1constants.LabelNetworkPolicyAllowed,
+					gardenerutils.NetworkPolicyLabel(vpaconstants.AdmissionControllerServiceName, vpaconstants.AdmissionControllerPort):             v1beta1constants.LabelNetworkPolicyAllowed,
+				}),
+			},
+			Spec: corev1.PodSpec{
+				AutomountServiceAccountToken:  pointer.Bool(false),
+				PriorityClassName:             k.values.PriorityClassName,
+				DNSPolicy:                     corev1.DNSClusterFirst,
+				RestartPolicy:                 corev1.RestartPolicyAlways,
+				SchedulerName:                 corev1.DefaultSchedulerName,
+				TerminationGracePeriodSeconds: pointer.Int64(30),
+				Containers: []corev1.Container{{
+					Name:                     ContainerNameKubeAPIServer,
+					Image:                    k.values.Images.KubeAPIServer,
+					ImagePullPolicy:          corev1.PullIfNotPresent,
+					Command:                  k.computeKubeAPIServerCommand(),
+					TerminationMessagePath:   corev1.TerminationMessagePathDefault,
+					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
+					Ports: []corev1.ContainerPort{{
+						Name:          "https",
+						ContainerPort: kubeapiserverconstants.Port,
+						Protocol:      corev1.ProtocolTCP,
 					}},
-					Volumes: []corev1.Volume{
-						{
-							Name: volumeNameAdmissionConfiguration,
-							VolumeSource: corev1.VolumeSource{
-								ConfigMap: &corev1.ConfigMapVolumeSource{
-									LocalObjectReference: corev1.LocalObjectReference{
-										Name: configMapAdmissionConfigs.Name,
-									},
-								},
+					Resources: k.values.Autoscaling.APIServerResources,
+					LivenessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Path:   "/livez",
+								Scheme: corev1.URISchemeHTTPS,
+								Port:   intstr.FromInt(kubeapiserverconstants.Port),
+								HTTPHeaders: []corev1.HTTPHeader{{
+									Name:  "Authorization",
+									Value: "Bearer " + healthCheckToken,
+								}},
 							},
 						},
-						{
-							Name: volumeNameAdmissionKubeconfigSecrets,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretAdmissionKubeconfigs.Name,
-								},
+						SuccessThreshold:    1,
+						FailureThreshold:    3,
+						InitialDelaySeconds: 15,
+						PeriodSeconds:       10,
+						TimeoutSeconds:      15,
+					},
+					ReadinessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Path:   "/readyz",
+								Scheme: corev1.URISchemeHTTPS,
+								Port:   intstr.FromInt(kubeapiserverconstants.Port),
+								HTTPHeaders: []corev1.HTTPHeader{{
+									Name:  "Authorization",
+									Value: "Bearer " + healthCheckToken,
+								}},
 							},
 						},
+						SuccessThreshold:    1,
+						FailureThreshold:    3,
+						InitialDelaySeconds: 10,
+						PeriodSeconds:       10,
+						TimeoutSeconds:      15,
+					},
+					VolumeMounts: []corev1.VolumeMount{
 						{
-							Name: volumeNameCA,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretCACluster.Name,
-								},
-							},
+							Name:      volumeNameAdmissionConfiguration,
+							MountPath: volumeMountPathAdmissionConfiguration,
 						},
 						{
-							Name: volumeNameCAClient,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretCAClient.Name,
-								},
-							},
+							Name:      volumeNameAdmissionKubeconfigSecrets,
+							MountPath: volumeMountPathAdmissionKubeconfigSecrets,
 						},
 						{
-							Name: volumeNameCAEtcd,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretCAETCD.Name,
-								},
-							},
+							Name:      volumeNameCA,
+							MountPath: volumeMountPathCA,
 						},
 						{
-							Name: volumeNameCAFrontProxy,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretCAFrontProxy.Name,
-								},
-							},
+							Name:      volumeNameCAClient,
+							MountPath: volumeMountPathCAClient,
 						},
 						{
-							Name: volumeNameEtcdClient,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretETCDClient.Name,
-								},
-							},
+							Name:      volumeNameCAEtcd,
+							MountPath: volumeMountPathCAEtcd,
 						},
 						{
-							Name: volumeNameServiceAccountKey,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretServiceAccountKey.Name,
-								},
-							},
+							Name:      volumeNameCAFrontProxy,
+							MountPath: volumeMountPathCAFrontProxy,
 						},
 						{
-							Name: volumeNameServiceAccountKeyBundle,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretServiceAccountKeyBundle.Name,
-								},
-							},
+							Name:      volumeNameEtcdClient,
+							MountPath: volumeMountPathEtcdClient,
 						},
 						{
-							Name: volumeNameStaticToken,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretStaticToken.Name,
-								},
-							},
+							Name:      volumeNameServer,
+							MountPath: volumeMountPathServer,
 						},
 						{
-							Name: volumeNameKubeAggregator,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretKubeAggregator.Name,
-								},
-							},
+							Name:      volumeNameServiceAccountKey,
+							MountPath: volumeMountPathServiceAccountKey,
 						},
 						{
-							Name: volumeNameEtcdEncryptionConfig,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretETCDEncryptionConfiguration.Name,
-								},
-							},
+							Name:      volumeNameServiceAccountKeyBundle,
+							MountPath: volumeMountPathServiceAccountKeyBundle,
 						},
 						{
-							Name: volumeNameServer,
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: secretServer.Name,
-								},
-							},
+							Name:      volumeNameStaticToken,
+							MountPath: volumeMountPathStaticToken,
+						},
+						{
+							Name:      volumeNameKubeAggregator,
+							MountPath: volumeMountPathKubeAggregator,
+						},
+						{
+							Name:      volumeNameEtcdEncryptionConfig,
+							MountPath: volumeMountPathEtcdEncryptionConfig,
+							ReadOnly:  true,
 						},
 					},
+				}},
+			},
+		},
+	}
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameAdmissionConfiguration,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: configMapAdmissionConfigs.Name,
 				},
 			},
-		}
+		},
+	}, configMapAdmissionConfigs.Data)
 
-		k.handleLifecycleSettings(deployment)
-		k.handleHostCertVolumes(deployment)
-		k.handleSNISettings(deployment)
-		k.handleTLSSNISettings(deployment, tlsSNISecrets)
-		k.handlePodMutatorSettings(deployment)
-		k.handleOIDCSettings(deployment, secretOIDCCABundle)
-		k.handleServiceAccountSigningKeySettings(deployment)
-		k.handleAuditSettings(deployment, configMapAuditPolicy, secretAuditWebhookKubeconfig)
-		k.handleAuthenticationSettings(deployment, secretAuthenticationWebhookKubeconfig)
-		k.handleAuthorizationSettings(deployment, secretAuthorizationWebhookKubeconfig)
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameAdmissionKubeconfigSecrets,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretAdmissionKubeconfigs.Name,
+			},
+		},
+	}, secretAdmissionKubeconfigs.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameCA,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretCACluster.Name,
+			},
+		},
+	}, secretCACluster.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameCAClient,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretCAClient.Name,
+			},
+		},
+	}, secretCAClient.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameCAEtcd,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretCAETCD.Name,
+			},
+		},
+	}, secretCAETCD.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameCAFrontProxy,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretCAFrontProxy.Name,
+			},
+		},
+	}, secretCAFrontProxy.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameEtcdClient,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretETCDClient.Name,
+			},
+		},
+	}, secretETCDClient.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameServiceAccountKey,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretServiceAccountKey.Name,
+			},
+		},
+	}, secretServiceAccountKey.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameServiceAccountKeyBundle,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretServiceAccountKeyBundle.Name,
+			},
+		},
+	}, secretServiceAccountKeyBundle.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameStaticToken,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretStaticToken.Name,
+			},
+		},
+	}, secretStaticToken.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameKubeAggregator,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretKubeAggregator.Name,
+			},
+		},
+	}, secretKubeAggregator.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameEtcdEncryptionConfig,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretETCDEncryptionConfiguration.Name,
+			},
+		},
+	}, secretETCDEncryptionConfiguration.Data)
+
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameServer,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretServer.Name,
+			},
+		},
+	}, secretServer.Data)
+
+	k.handleLifecycleSettings(deployment)
+	k.handleHostCertVolumes(deployment)
+	k.handleSNISettings(deployment)
+	k.handleTLSSNISettings(deployment, tlsSNISecrets)
+	k.handlePodMutatorSettings(deployment)
+	k.handleOIDCSettings(deployment, secretOIDCCABundle)
+	k.handleServiceAccountSigningKeySettings(deployment)
+	k.handleAuditSettings(deployment, configMapAuditPolicy, secretAuditWebhookKubeconfig)
+	k.handleAuthenticationSettings(deployment, secretAuthenticationWebhookKubeconfig)
+	k.handleAuthorizationSettings(deployment, secretAuthorizationWebhookKubeconfig)
+	if !createStaticPod {
 		if err := k.handleVPNSettings(deployment, serviceAccount, configMapEgressSelector, secretHTTPProxy, secretHAVPNSeedClient, secretHAVPNSeedClientSeedTLSAuth); err != nil {
 			return err
 		}
-		if err := k.handleKubeletSettings(deployment, secretKubeletClient); err != nil {
-			return err
-		}
+	}
+	if err := k.handleKubeletSettings(deployment, secretKubeletClient); err != nil {
+		return err
+	}
 
-		if version.ConstraintK8sEqual124.Check(k.values.Version) {
-			// For kube-apiserver version 1.24 there is a deadlock that can occur during shutdown that prevents the
-			// graceful termination of the kube-apiserver container to complete when the --audit-log-mode setting
-			// is set to batch. For more information check
-			// https://github.com/gardener/gardener/blob/a63e23a27dabc6a25fb470128a52f8585cd136ff/pkg/operation/botanist/component/kubeapiserver/deployment.go#L677-L683
-			k.handleWatchdogSidecar(deployment, configMapTerminationHandler, healthCheckToken)
-		}
+	if version.ConstraintK8sEqual124.Check(k.values.Version) {
+		// For kube-apiserver version 1.24 there is a deadlock that can occur during shutdown that prevents the
+		// graceful termination of the kube-apiserver container to complete when the --audit-log-mode setting
+		// is set to batch. For more information check
+		// https://github.com/gardener/gardener/blob/a63e23a27dabc6a25fb470128a52f8585cd136ff/pkg/operation/botanist/component/kubeapiserver/deployment.go#L677-L683
+		k.handleWatchdogSidecar(deployment, configMapTerminationHandler, healthCheckToken)
+	}
 
-		utilruntime.Must(references.InjectAnnotations(deployment))
-		return nil
+	utilruntime.Must(references.InjectAnnotations(deployment))
+	return nil
+}
+
+func (k *kubeAPIServer) reconcileDeployment(
+	ctx context.Context,
+	deployment *appsv1.Deployment,
+	serviceAccount *corev1.ServiceAccount,
+	configMapAuditPolicy *corev1.ConfigMap,
+	configMapAdmissionConfigs *corev1.ConfigMap,
+	secretAdmissionKubeconfigs *corev1.Secret,
+	configMapEgressSelector *corev1.ConfigMap,
+	configMapTerminationHandler *corev1.ConfigMap,
+	secretETCDEncryptionConfiguration *corev1.Secret,
+	secretOIDCCABundle *corev1.Secret,
+	secretServiceAccountKey *corev1.Secret,
+	secretStaticToken *corev1.Secret,
+	secretServer *corev1.Secret,
+	secretKubeletClient *corev1.Secret,
+	secretKubeAggregator *corev1.Secret,
+	secretHTTPProxy *corev1.Secret,
+	secretHAVPNSeedClient *corev1.Secret,
+	secretHAVPNSeedClientSeedTLSAuth *corev1.Secret,
+	secretAuditWebhookKubeconfig *corev1.Secret,
+	secretAuthenticationWebhookKubeconfig *corev1.Secret,
+	secretAuthorizationWebhookKubeconfig *corev1.Secret,
+	tlsSNISecrets []tlsSNISecret,
+) error {
+	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client.Client(), deployment, func() error {
+		return k.reconcileDeploymentFunc(
+			deployment,
+			false,
+			serviceAccount,
+			configMapAuditPolicy,
+			configMapAdmissionConfigs,
+			secretAdmissionKubeconfigs,
+			configMapEgressSelector,
+			configMapTerminationHandler,
+			secretETCDEncryptionConfiguration,
+			secretOIDCCABundle,
+			secretServiceAccountKey,
+			secretStaticToken,
+			secretServer,
+			secretKubeletClient,
+			secretKubeAggregator,
+			secretHTTPProxy,
+			secretHAVPNSeedClient,
+			secretHAVPNSeedClientSeedTLSAuth,
+			secretAuditWebhookKubeconfig,
+			secretAuthenticationWebhookKubeconfig,
+			secretAuthorizationWebhookKubeconfig,
+			tlsSNISecrets)
 	})
 	return err
 }
@@ -765,14 +828,14 @@ func (k *kubeAPIServer) handleTLSSNISettings(deployment *appsv1.Deployment, tlsS
 			MountPath: volumeMountPath,
 			ReadOnly:  true,
 		})
-		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+		k.addVolume(deployment, corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: sni.secretName,
 				},
 			},
-		})
+		}, sni.data)
 	}
 }
 
@@ -1160,16 +1223,14 @@ func (k *kubeAPIServer) handleOIDCSettings(deployment *appsv1.Deployment, secret
 				MountPath: volumeMountPathOIDCCABundle,
 			},
 		}...)
-		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, []corev1.Volume{
-			{
-				Name: volumeNameOIDCCABundle,
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName: secretOIDCCABundle.Name,
-					},
+		k.addVolume(deployment, corev1.Volume{
+			Name: volumeNameOIDCCABundle,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: secretOIDCCABundle.Name,
 				},
 			},
-		}...)
+		}, secretOIDCCABundle.Data)
 	}
 
 	if v := k.values.OIDC.IssuerURL; v != nil {
@@ -1267,24 +1328,22 @@ func (k *kubeAPIServer) handleKubeletSettings(deployment *appsv1.Deployment, sec
 			MountPath: volumeMountPathKubeAPIServerToKubelet,
 		},
 	}...)
-	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, []corev1.Volume{
-		{
-			Name: volumeNameCAKubelet,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: secretCAKubelet.Name,
-				},
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameCAKubelet,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretCAKubelet.Name,
 			},
 		},
-		{
-			Name: volumeNameKubeAPIServerToKubelet,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: secretKubeletClient.Name,
-				},
+	}, secretCAKubelet.Data)
+	k.addVolume(deployment, corev1.Volume{
+		Name: volumeNameKubeAPIServerToKubelet,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName: secretKubeletClient.Name,
 			},
 		},
-	}...)
+	}, secretKubeletClient.Data)
 
 	return nil
 }
@@ -1312,7 +1371,7 @@ func (k *kubeAPIServer) handleWatchdogSidecar(deployment *appsv1.Deployment, con
 	})
 
 	deployment.Spec.Template.Spec.ShareProcessNamespace = pointer.Bool(true)
-	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+	k.addVolume(deployment, corev1.Volume{
 		Name: volumeNameWatchdog,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -1322,7 +1381,26 @@ func (k *kubeAPIServer) handleWatchdogSidecar(deployment *appsv1.Deployment, con
 				DefaultMode: pointer.Int32(500),
 			},
 		},
-	})
+	}, configMap.Data)
+}
+
+func (k *kubeAPIServer) addVolume(deployment *appsv1.Deployment, volume corev1.Volume, data any) {
+	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, volume)
+	k.volumeData = map[string][]byte{}
+	if k.values.CreateStaticPodScript {
+		switch typedData := data.(type) {
+		case map[string]string:
+			for key, v := range typedData {
+				k.volumeData[volume.Name+"/"+key] = []byte(v)
+			}
+		case map[string][]byte:
+			for key, v := range typedData {
+				k.volumeData[volume.Name+"/"+key] = v
+			}
+		default:
+			k.volumeDataErr = errors.Join(k.volumeDataErr, fmt.Errorf("unexpected data for volume %s", volume.Name))
+		}
+	}
 }
 
 func (k *kubeAPIServer) handleAuditSettings(deployment *appsv1.Deployment, configMapAuditPolicy *corev1.ConfigMap, secretWebhookKubeconfig *corev1.Secret) {
@@ -1332,7 +1410,7 @@ func (k *kubeAPIServer) handleAuditSettings(deployment *appsv1.Deployment, confi
 		Name:      volumeNameAuditPolicy,
 		MountPath: volumeMountPathAuditPolicy,
 	})
-	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+	k.addVolume(deployment, corev1.Volume{
 		Name: volumeNameAuditPolicy,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -1341,7 +1419,7 @@ func (k *kubeAPIServer) handleAuditSettings(deployment *appsv1.Deployment, confi
 				},
 			},
 		},
-	})
+	}, configMapAuditPolicy.Data)
 
 	if k.values.Audit == nil || k.values.Audit.Webhook == nil {
 		deployment.Spec.Template.Spec.Containers[0].Command = append(deployment.Spec.Template.Spec.Containers[0].Command,
@@ -1359,14 +1437,14 @@ func (k *kubeAPIServer) handleAuditSettings(deployment *appsv1.Deployment, confi
 			MountPath: volumeMountPathAuditWebhookKubeconfig,
 			ReadOnly:  true,
 		})
-		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+		k.addVolume(deployment, corev1.Volume{
 			Name: volumeNameAuditWebhookKubeconfig,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: secretWebhookKubeconfig.Name,
 				},
 			},
-		})
+		}, secretWebhookKubeconfig.Data)
 	}
 
 	if v := k.values.Audit.Webhook.BatchMaxSize; v != nil {
@@ -1390,14 +1468,14 @@ func (k *kubeAPIServer) handleAuthenticationSettings(deployment *appsv1.Deployme
 			MountPath: volumeMountPathAuthenticationWebhookKubeconfig,
 			ReadOnly:  true,
 		})
-		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+		k.addVolume(deployment, corev1.Volume{
 			Name: volumeNameAuthenticationWebhookKubeconfig,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: secretWebhookKubeconfig.Name,
 				},
 			},
-		})
+		}, secretWebhookKubeconfig.Data)
 	}
 
 	if v := k.values.AuthenticationWebhook.CacheTTL; v != nil {
@@ -1426,14 +1504,14 @@ func (k *kubeAPIServer) handleAuthorizationSettings(deployment *appsv1.Deploymen
 				MountPath: volumeMountPathAuthorizationWebhookKubeconfig,
 				ReadOnly:  true,
 			})
-			deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+			k.addVolume(deployment, corev1.Volume{
 				Name: volumeNameAuthorizationWebhookKubeconfig,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
 						SecretName: secretWebhookKubeconfig.Name,
 					},
 				},
-			})
+			}, secretWebhookKubeconfig.Name)
 		}
 
 		if v := k.values.AuthorizationWebhook.CacheAuthorizedTTL; v != nil {

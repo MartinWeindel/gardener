@@ -97,6 +97,7 @@ func Config(kubernetesVersion *semver.Version, clusterDNSAddress, clusterDomain 
 		SeccompDefault:                   params.SeccompDefault,
 		SerializeImagePulls:              params.SerializeImagePulls,
 		ServerTLSBootstrap:               true,
+		StaticPodPath:                    "/etc/kubernetes/manifests",
 		StreamingConnectionIdleTimeout:   *params.StreamingConnectionIdleTimeout,
 		RegisterWithTaints: []corev1.Taint{{
 			Key:    v1beta1constants.TaintNodeCriticalComponentsNotReady,

@@ -343,6 +343,7 @@ func (k *kubeAPIServer) reconcileSecretHAVPNSeedClientTLSAuth(ctx context.Contex
 type tlsSNISecret struct {
 	secretName     string
 	domainPatterns []string
+	data           map[string][]byte
 }
 
 func (k *kubeAPIServer) reconcileTLSSNISecrets(ctx context.Context) ([]tlsSNISecret, error) {
@@ -351,7 +352,15 @@ func (k *kubeAPIServer) reconcileTLSSNISecrets(ctx context.Context) ([]tlsSNISec
 	for i, sni := range k.values.SNI.TLS {
 		switch {
 		case sni.SecretName != nil:
-			out = append(out, tlsSNISecret{secretName: *sni.SecretName, domainPatterns: sni.DomainPatterns})
+			sniSecret := tlsSNISecret{secretName: *sni.SecretName, domainPatterns: sni.DomainPatterns}
+			secret := &corev1.Secret{}
+			if k.values.CreateStaticPodScript {
+				key := client.ObjectKey{Name: *sni.SecretName, Namespace: k.namespace}
+				if k.client.Client().Get(ctx, key, secret) == nil {
+					sniSecret.data = secret.Data
+				}
+			}
+			out = append(out, sniSecret)
 
 		case len(sni.Certificate) > 0 && len(sni.PrivateKey) > 0:
 			secret := k.emptySecret(fmt.Sprintf("kube-apiserver-tls-sni-%d", i))
@@ -366,7 +375,7 @@ func (k *kubeAPIServer) reconcileTLSSNISecrets(ctx context.Context) ([]tlsSNISec
 				return nil, err
 			}
 
-			out = append(out, tlsSNISecret{secretName: secret.Name, domainPatterns: sni.DomainPatterns})
+			out = append(out, tlsSNISecret{secretName: secret.Name, domainPatterns: sni.DomainPatterns, data: secret.Data})
 
 		default:
 			return nil, fmt.Errorf("either the name of an existing secret or both certificate and private key must be provided for TLS SNI config")

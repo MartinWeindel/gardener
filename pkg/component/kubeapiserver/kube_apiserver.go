@@ -15,10 +15,14 @@
 package kubeapiserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/gardener/gardener/pkg/controllerutils"
 	"net"
+	"sigs.k8s.io/yaml"
 	"time"
 
 	"github.com/Masterminds/semver"
@@ -193,6 +197,8 @@ type Values struct {
 	VPN VPNConfig
 	// WatchCacheSizes are the configured sizes for the watch caches.
 	WatchCacheSizes *gardencorev1beta1.WatchCacheSizes
+	// CreateStaticPodScript
+	CreateStaticPodScript bool
 }
 
 // AdmissionPluginConfig contains information about a specific admission plugin and its corresponding configuration.
@@ -374,6 +380,8 @@ type kubeAPIServer struct {
 	namespace      string
 	secretsManager secretsmanager.Interface
 	values         Values
+	volumeData     map[string][]byte
+	volumeDataErr  error
 }
 
 func (k *kubeAPIServer) Deploy(ctx context.Context) error {
@@ -557,6 +565,44 @@ func (k *kubeAPIServer) Deploy(ctx context.Context) error {
 		return err
 	}
 
+	if k.values.CreateStaticPodScript {
+		dummyDeployment := k.emptyDeployment()
+		k.volumeData = map[string][]byte{}
+		k.volumeDataErr = nil
+		if err := k.reconcileDeploymentFunc(
+			dummyDeployment,
+			true,
+			serviceAccount,
+			configMapAuditPolicy,
+			configMapAdmissionConfigs,
+			secretAdmissionKubeconfigs,
+			configMapEgressSelector,
+			configMapTerminationHandler,
+			secretETCDEncryptionConfiguration,
+			secretOIDCCABundle,
+			secretServiceAccountKey,
+			secretStaticToken,
+			secretServer,
+			secretKubeletClient,
+			secretKubeAggregator,
+			secretHTTPProxy,
+			secretHAVPNSeedClient,
+			secretHAVPNClientSeedTLSAuth,
+			secretAuditWebhookKubeconfig,
+			secretAuthenticationWebhookKubeconfig,
+			secretAuthorizationWebhookKubeconfig,
+			tlsSNISecrets,
+		); err != nil {
+			return err
+		}
+		if k.volumeDataErr != nil {
+			return fmt.Errorf("collecting volume data failed: %w", k.volumeDataErr)
+		}
+		if err := k.writeStaticPodScript(ctx, &dummyDeployment.Spec.Template.Spec, k.volumeData); err != nil {
+			return err
+		}
+	}
+
 	if pointer.BoolDeref(k.values.StaticTokenKubeconfigEnabled, true) {
 		if err := k.reconcileSecretUserKubeconfig(ctx, secretStaticToken); err != nil {
 			return err
@@ -708,4 +754,53 @@ func getLabels() map[string]string {
 		v1beta1constants.LabelApp:  v1beta1constants.LabelKubernetes,
 		v1beta1constants.LabelRole: v1beta1constants.LabelAPIServer,
 	}
+}
+
+func (k *kubeAPIServer) writeStaticPodScript(ctx context.Context, podSpec *corev1.PodSpec, volumeData map[string][]byte) error {
+	name := k.values.NamePrefix + v1beta1constants.DeploymentNameKubeAPIServer
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "staticpod-" + name, Namespace: k.namespace}}
+
+	buf := &bytes.Buffer{}
+	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client.Client(), cm, func() error {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: k.namespace},
+			Spec:       *podSpec,
+		}
+		podYaml, err := yaml.Marshal(pod)
+		if err != nil {
+			return fmt.Errorf("marshalling pod failed: %w", err)
+		}
+		filename := "/etc/kubernetes/manifests/" + name
+		if _, err := buf.WriteString("mkdir -p /etc/kubernetes/manifests/volumes\n"); err != nil {
+			return err
+		}
+		if err := appendFile(buf, filename, []byte(podYaml)); err != nil {
+			return err
+		}
+		for name, data := range volumeData {
+			if err := appendFile(buf, "/etc/kubernetes/manifests/volumes/"+name, data); err != nil {
+				return err
+			}
+		}
+
+		cm.Data = map[string]string{"script": buf.String()}
+		return nil
+	})
+	return err
+}
+
+func appendFile(buf *bytes.Buffer, filename string, data []byte) error {
+	if _, err := buf.WriteString("cat << EOF | base64 -d > '" + filename + "'\n"); err != nil {
+		return err
+	}
+
+	str := base64.StdEncoding.EncodeToString(data)
+	if _, err := buf.WriteString(str + "\n"); err != nil {
+		return err
+	}
+
+	if _, err := buf.WriteString("EOF\n"); err != nil {
+		return err
+	}
+	return nil
 }
