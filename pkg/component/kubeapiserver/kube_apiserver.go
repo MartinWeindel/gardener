@@ -772,7 +772,7 @@ func (k *kubeAPIServer) writeStaticPodScript(ctx context.Context, podSpec *corev
 	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client.Client(), cm, func() error {
 		pod := &corev1.Pod{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
-			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: k.namespace},
+			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: "kube-system"},
 			Spec:       *podSpec,
 		}
 		podYaml, err := yaml.Marshal(pod)
@@ -780,9 +780,6 @@ func (k *kubeAPIServer) writeStaticPodScript(ctx context.Context, podSpec *corev
 			return fmt.Errorf("marshalling pod failed: %w", err)
 		}
 		filename := path.Join(staticPodsManifestsPath, podName)
-		if _, err := buf.WriteString("mkdir -p " + staticPodsVolumesPath + "\n"); err != nil {
-			return err
-		}
 		if err := appendFile(buf, filename, []byte(podYaml)); err != nil {
 			return err
 		}
@@ -799,6 +796,10 @@ func (k *kubeAPIServer) writeStaticPodScript(ctx context.Context, podSpec *corev
 }
 
 func appendFile(buf *bytes.Buffer, filename string, data []byte) error {
+	if _, err := buf.WriteString("mkdir -p " + path.Dir(filename) + "\n"); err != nil {
+		return err
+	}
+
 	if _, err := buf.WriteString("cat << EOF | base64 -d > '" + filename + "'\n"); err != nil {
 		return err
 	}
