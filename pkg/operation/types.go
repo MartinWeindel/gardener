@@ -78,4 +78,6 @@ type Operation struct {
 
 	// ControlPlaneWildcardCert is a wildcard tls certificate which is issued for the seed's ingress domain.
 	ControlPlaneWildcardCert *corev1.Secret
+
+	CreateStaticPodScript bool
 }
