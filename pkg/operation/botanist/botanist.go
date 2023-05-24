@@ -175,12 +175,9 @@ func New(ctx context.Context, o *operation.Operation) (*Botanist, error) {
 	o.Shoot.Components.SystemComponents.ClusterIdentity = b.DefaultClusterIdentity()
 
 	if !o.Shoot.IsWorkerless {
-		if !b.CreateStaticPodScript {
-			// would maybe better to restrict daemonset to non-master nodes
-			o.Shoot.Components.SystemComponents.APIServerProxy, err = b.DefaultAPIServerProxy()
-			if err != nil {
-				return nil, err
-			}
+		o.Shoot.Components.SystemComponents.APIServerProxy, err = b.DefaultAPIServerProxy()
+		if err != nil {
+			return nil, err
 		}
 		o.Shoot.Components.SystemComponents.CoreDNS, err = b.DefaultCoreDNS()
 		if err != nil {
