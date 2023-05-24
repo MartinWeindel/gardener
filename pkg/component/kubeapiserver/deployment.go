@@ -138,7 +138,6 @@ func (k *kubeAPIServer) emptyDeployment() *appsv1.Deployment {
 
 func (k *kubeAPIServer) reconcileDeploymentFunc(
 	deployment *appsv1.Deployment,
-	createStaticPod bool,
 	serviceAccount *corev1.ServiceAccount,
 	configMapAuditPolicy *corev1.ConfigMap,
 	configMapAdmissionConfigs *corev1.ConfigMap,
@@ -488,7 +487,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 	k.handleAuditSettings(deployment, configMapAuditPolicy, secretAuditWebhookKubeconfig)
 	k.handleAuthenticationSettings(deployment, secretAuthenticationWebhookKubeconfig)
 	k.handleAuthorizationSettings(deployment, secretAuthorizationWebhookKubeconfig)
-	if !createStaticPod {
+	if !k.createStaticPodRound {
 		if err := k.handleVPNSettings(deployment, serviceAccount, configMapEgressSelector, secretHTTPProxy, secretHAVPNSeedClient, secretHAVPNSeedClientSeedTLSAuth); err != nil {
 			return err
 		}
@@ -506,6 +505,10 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 	}
 
 	utilruntime.Must(references.InjectAnnotations(deployment))
+
+	if k.createStaticPodRound {
+		deployment.Spec.Template.Spec.HostNetwork = true
+	}
 	return nil
 }
 
@@ -536,7 +539,6 @@ func (k *kubeAPIServer) reconcileDeployment(
 	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client.Client(), deployment, func() error {
 		return k.reconcileDeploymentFunc(
 			deployment,
-			false,
 			serviceAccount,
 			configMapAuditPolicy,
 			configMapAdmissionConfigs,
@@ -587,7 +589,11 @@ func (k *kubeAPIServer) computeKubeAPIServerCommand() []string {
 	out = append(out, fmt.Sprintf("--etcd-cafile=%s/%s", volumeMountPathCAEtcd, secrets.DataKeyCertificateBundle))
 	out = append(out, fmt.Sprintf("--etcd-certfile=%s/%s", volumeMountPathEtcdClient, secrets.DataKeyCertificate))
 	out = append(out, fmt.Sprintf("--etcd-keyfile=%s/%s", volumeMountPathEtcdClient, secrets.DataKeyPrivateKey))
-	out = append(out, fmt.Sprintf("--etcd-servers=https://%s%s:%d", k.values.NamePrefix, etcdconstants.ServiceName(v1beta1constants.ETCDRoleMain), etcdconstants.PortEtcdClient))
+	server := k.values.NamePrefix + etcdconstants.ServiceName(v1beta1constants.ETCDRoleMain)
+	if k.createStaticPodRound {
+		server = "localhost"
+	}
+	out = append(out, fmt.Sprintf("--etcd-servers=https://%s:%d", server, etcdconstants.PortEtcdClient))
 	out = append(out, "--etcd-servers-overrides="+k.etcdServersOverrides())
 	out = append(out, fmt.Sprintf("--encryption-provider-config=%s/%s", volumeMountPathEtcdEncryptionConfig, secretETCDEncryptionConfigurationDataKey))
 	out = append(out, "--external-hostname="+k.values.ExternalHostname)
@@ -714,7 +720,13 @@ func (k *kubeAPIServer) etcdServersOverrides() string {
 
 	var overrides []string
 	for _, resource := range addGroupResourceIfNotPresent(k.values.ResourcesToStoreInETCDEvents, schema.GroupResource{Resource: "events"}) {
-		overrides = append(overrides, fmt.Sprintf("%s/%s#https://%s%s:%d", resource.Group, resource.Resource, k.values.NamePrefix, etcdconstants.ServiceName(v1beta1constants.ETCDRoleEvents), etcdconstants.PortEtcdClient))
+		server := k.values.NamePrefix + etcdconstants.ServiceName(v1beta1constants.ETCDRoleEvents)
+		port := etcdconstants.PortEtcdClient
+		if k.createStaticPodRound {
+			server = "localhost"
+			port += 100
+		}
+		overrides = append(overrides, fmt.Sprintf("%s/%s#https://%s:%d", resource.Group, resource.Resource, server, port))
 	}
 	return strings.Join(overrides, ",")
 }

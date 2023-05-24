@@ -416,6 +416,10 @@ func (e *etcd) Deploy(ctx context.Context) error {
 
 	if e.values.CreateStaticPodScript {
 		dirOrCreate := corev1.HostPathDirectoryOrCreate
+		var basePort int32 = 2379
+		if e.etcd.Name == "etcd-events" {
+			basePort = 2479
+		}
 		podSpec := &corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
@@ -428,20 +432,20 @@ func (e *etcd) Deploy(ctx context.Context) error {
 						"--key-file=/tls/server.key",
 						"--cert-file=/tls/server.crt",
 						"--client-cert-auth",
-						"--listen-client-urls=https://0.0.0.0:2379",
-						"--advertise-client-urls=https://etcd-client.garden.svc:2379",
+						fmt.Sprintf("--listen-client-urls=https://0.0.0.0:%d", basePort),
+						fmt.Sprintf("--advertise-client-urls=https://etcd-client.garden.svc::%d", basePort),
 						"--initial-cluster-state=new",
 						"--initial-cluster-token=new",
 						"--data-dir=/etcd-data",
 					},
 					Ports: []corev1.ContainerPort{
 						{
-							ContainerPort: 2379,
+							ContainerPort: basePort,
 							Name:          "client",
 							Protocol:      corev1.ProtocolTCP,
 						},
 						{
-							ContainerPort: 2380,
+							ContainerPort: basePort + 1,
 							Name:          "discovery",
 							Protocol:      corev1.ProtocolTCP,
 						},
@@ -458,7 +462,7 @@ func (e *etcd) Deploy(ctx context.Context) error {
 					},
 				},
 			},
-			Hostname: e.etcd.Name + "-0",
+			HostNetwork: true,
 			Volumes: []corev1.Volume{
 				{
 					Name: "etcd-data",
@@ -703,6 +707,9 @@ func (e *etcd) clientServiceDNSNames() []string {
 	// See https://github.com/gardener/etcd-backup-restore/issues/494
 	domainNames = append(domainNames, kubernetesutils.DNSNamesForService(fmt.Sprintf("*.%s-peer", e.etcd.Name), e.namespace)...)
 
+	if e.values.CreateStaticPodScript {
+		domainNames = append(domainNames, "localhost")
+	}
 	return domainNames
 }
 

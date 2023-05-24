@@ -569,9 +569,13 @@ func (k *kubeAPIServer) Deploy(ctx context.Context) error {
 		k.createStaticPodRound = true
 		k.volumeData = map[string][]byte{}
 		k.volumeDataErr = nil
+		defer func() {
+			k.createStaticPodRound = false
+			k.volumeData = nil
+			k.volumeDataErr = nil
+		}()
 		if err := k.reconcileDeploymentFunc(
 			dummyDeployment,
-			true,
 			serviceAccount,
 			configMapAuditPolicy,
 			configMapAdmissionConfigs,
