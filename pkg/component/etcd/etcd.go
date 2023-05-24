@@ -473,7 +473,7 @@ func (e *etcd) Deploy(ctx context.Context) error {
 					Name: "tls",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
-							Path: path.Join(component.VolumeRootDirPlaceholder, e.etcd.Name),
+							Path: path.Join(component.VolumeRootDirPlaceholder, "tls"),
 							Type: &dirOrCreate,
 						},
 					},
