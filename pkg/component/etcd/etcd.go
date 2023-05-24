@@ -433,7 +433,7 @@ func (e *etcd) Deploy(ctx context.Context) error {
 						"--cert-file=/tls/server.crt",
 						"--client-cert-auth",
 						fmt.Sprintf("--listen-client-urls=https://0.0.0.0:%d", basePort),
-						fmt.Sprintf("--advertise-client-urls=https://etcd-client.garden.svc::%d", basePort),
+						fmt.Sprintf("--advertise-client-urls=https://etcd-client.garden.svc:%d", basePort),
 						"--initial-cluster-state=new",
 						"--initial-cluster-token=new",
 						"--data-dir=/etcd-data",
