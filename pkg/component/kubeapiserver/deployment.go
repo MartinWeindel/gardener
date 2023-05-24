@@ -210,8 +210,10 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		resourcesv1alpha1.HighAvailabilityConfigType: resourcesv1alpha1.HighAvailabilityConfigTypeServer,
 	})
 	priorityClassName := k.values.PriorityClassName
+	probeHost := ""
 	if k.createStaticPodRound {
 		priorityClassName = "system-node-critical"
+		probeHost = "127.0.0.1"
 	}
 	deployment.Spec = appsv1.DeploymentSpec{
 		MinReadySeconds:      30,
@@ -264,6 +266,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 							HTTPGet: &corev1.HTTPGetAction{
 								Path:   "/livez",
 								Scheme: corev1.URISchemeHTTPS,
+								Host:   probeHost,
 								Port:   intstr.FromInt(kubeapiserverconstants.Port),
 								HTTPHeaders: []corev1.HTTPHeader{{
 									Name:  "Authorization",
@@ -282,6 +285,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 							HTTPGet: &corev1.HTTPGetAction{
 								Path:   "/readyz",
 								Scheme: corev1.URISchemeHTTPS,
+								Host:   probeHost,
 								Port:   intstr.FromInt(kubeapiserverconstants.Port),
 								HTTPHeaders: []corev1.HTTPHeader{{
 									Name:  "Authorization",
