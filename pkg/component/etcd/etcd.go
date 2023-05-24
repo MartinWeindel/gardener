@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -472,7 +473,7 @@ func (e *etcd) Deploy(ctx context.Context) error {
 					Name: "tls",
 					VolumeSource: corev1.VolumeSource{
 						HostPath: &corev1.HostPathVolumeSource{
-							Path: "/var/lib/etcd/tls/" + e.etcd.Name,
+							Path: path.Join(component.VolumeRootDirPlaceholder, e.etcd.Name),
 							Type: &dirOrCreate,
 						},
 					},
@@ -480,7 +481,7 @@ func (e *etcd) Deploy(ctx context.Context) error {
 			},
 		}
 		volumeData := map[string][]byte{
-			"tls/ca.crt":     etcdCASecret.Data["ca.crt"],
+			"tls/ca.crt":     etcdCASecret.Data["bundle.crt"],
 			"tls/server.crt": serverSecret.Data["tls.crt"],
 			"tls/server.key": serverSecret.Data["tls.key"],
 		}
