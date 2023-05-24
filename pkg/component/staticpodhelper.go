@@ -18,14 +18,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"path"
+	"strings"
+
 	"github.com/gardener/gardener/pkg/controllerutils"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"path"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
-	"strings"
 )
 
 const (
@@ -33,8 +36,29 @@ const (
 	VolumeRootDirPlaceholder = "@"
 )
 
-func WriteStaticPodScript(ctx context.Context, client client.Client, namespace, podName string, podSpec *corev1.PodSpec, volumeData map[string][]byte) error {
+type VolumeData struct {
+	data map[string][]byte
+	err  error
+}
+
+func NewVolumeData(
+	data map[string][]byte,
+) *VolumeData {
+	if data == nil {
+		data = map[string][]byte{}
+	}
+	return &VolumeData{
+		data: data,
+	}
+}
+
+func (v *VolumeData) WriteStaticPodScript(ctx context.Context, client client.Client, namespace, podName string, podSpec *corev1.PodSpec) error {
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "staticpod-" + podName, Namespace: namespace}}
+
+	if v.err != nil {
+		return fmt.Errorf("collecting volume data failed: %w", v.err)
+	}
+
 	volumesPath := path.Join(StaticPodsManifestsPath, podName+"-volumes")
 
 	// fix volume paths
@@ -60,7 +84,7 @@ func WriteStaticPodScript(ctx context.Context, client client.Client, namespace, 
 		if err := appendFile(buf, filename, []byte(podYaml)); err != nil {
 			return err
 		}
-		for name, data := range volumeData {
+		for name, data := range v.data {
 			if err := appendFile(buf, path.Join(volumesPath, name), data); err != nil {
 				return err
 			}
@@ -70,6 +94,36 @@ func WriteStaticPodScript(ctx context.Context, client client.Client, namespace, 
 		return nil
 	})
 	return err
+}
+
+func (v *VolumeData) AddVolume(deployment *appsv1.Deployment, volume corev1.Volume, data any) {
+
+	if v == nil {
+		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, volume)
+		return
+	}
+	switch typedData := data.(type) {
+	case map[string]string:
+		for key, value := range typedData {
+			v.data[volume.Name+"/"+key] = []byte(value)
+		}
+	case map[string][]byte:
+		for key, value := range typedData {
+			v.data[volume.Name+"/"+key] = value
+		}
+	default:
+		v.err = errors.Join(v.err, fmt.Errorf("unexpected data for volume %s", volume.Name))
+	}
+	typ := corev1.HostPathDirectoryOrCreate
+	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: volume.Name,
+		VolumeSource: corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: path.Join(VolumeRootDirPlaceholder, volume.Name),
+				Type: &typ,
+			},
+		},
+	})
 }
 
 func appendFile(buf *bytes.Buffer, filename string, data []byte) error {

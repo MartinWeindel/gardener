@@ -16,10 +16,7 @@ package kubeapiserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/gardener/gardener/pkg/component"
-	"path"
 	"strconv"
 	"strings"
 
@@ -358,7 +355,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameAdmissionConfiguration,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -369,7 +366,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, configMapAdmissionConfigs.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameAdmissionKubeconfigSecrets,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -378,7 +375,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretAdmissionKubeconfigs.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameCA,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -387,7 +384,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretCACluster.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameCAClient,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -396,7 +393,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretCAClient.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameCAEtcd,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -405,7 +402,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretCAETCD.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameCAFrontProxy,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -414,7 +411,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretCAFrontProxy.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameEtcdClient,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -423,7 +420,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretETCDClient.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameServiceAccountKey,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -432,7 +429,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretServiceAccountKey.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameServiceAccountKeyBundle,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -441,7 +438,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretServiceAccountKeyBundle.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameStaticToken,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -450,7 +447,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretStaticToken.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameKubeAggregator,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -459,7 +456,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretKubeAggregator.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameEtcdEncryptionConfig,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -468,7 +465,7 @@ func (k *kubeAPIServer) reconcileDeploymentFunc(
 		},
 	}, secretETCDEncryptionConfiguration.Data)
 
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameServer,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -846,7 +843,7 @@ func (k *kubeAPIServer) handleTLSSNISettings(deployment *appsv1.Deployment, tlsS
 			MountPath: volumeMountPath,
 			ReadOnly:  true,
 		})
-		k.addVolume(deployment, corev1.Volume{
+		k.volumeData.AddVolume(deployment, corev1.Volume{
 			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
@@ -1241,7 +1238,7 @@ func (k *kubeAPIServer) handleOIDCSettings(deployment *appsv1.Deployment, secret
 				MountPath: volumeMountPathOIDCCABundle,
 			},
 		}...)
-		k.addVolume(deployment, corev1.Volume{
+		k.volumeData.AddVolume(deployment, corev1.Volume{
 			Name: volumeNameOIDCCABundle,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
@@ -1346,7 +1343,7 @@ func (k *kubeAPIServer) handleKubeletSettings(deployment *appsv1.Deployment, sec
 			MountPath: volumeMountPathKubeAPIServerToKubelet,
 		},
 	}...)
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameCAKubelet,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -1354,7 +1351,7 @@ func (k *kubeAPIServer) handleKubeletSettings(deployment *appsv1.Deployment, sec
 			},
 		},
 	}, secretCAKubelet.Data)
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameKubeAPIServerToKubelet,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
@@ -1389,7 +1386,7 @@ func (k *kubeAPIServer) handleWatchdogSidecar(deployment *appsv1.Deployment, con
 	})
 
 	deployment.Spec.Template.Spec.ShareProcessNamespace = pointer.Bool(true)
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameWatchdog,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -1402,35 +1399,6 @@ func (k *kubeAPIServer) handleWatchdogSidecar(deployment *appsv1.Deployment, con
 	}, configMap.Data)
 }
 
-func (k *kubeAPIServer) addVolume(deployment *appsv1.Deployment, volume corev1.Volume, data any) {
-	if k.createStaticPodRound {
-		switch typedData := data.(type) {
-		case map[string]string:
-			for key, v := range typedData {
-				k.volumeData[volume.Name+"/"+key] = []byte(v)
-			}
-		case map[string][]byte:
-			for key, v := range typedData {
-				k.volumeData[volume.Name+"/"+key] = v
-			}
-		default:
-			k.volumeDataErr = errors.Join(k.volumeDataErr, fmt.Errorf("unexpected data for volume %s", volume.Name))
-		}
-		typ := corev1.HostPathDirectoryOrCreate
-		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
-			Name: volume.Name,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: path.Join(component.VolumeRootDirPlaceholder, volume.Name),
-					Type: &typ,
-				},
-			},
-		})
-	} else {
-		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, volume)
-	}
-}
-
 func (k *kubeAPIServer) handleAuditSettings(deployment *appsv1.Deployment, configMapAuditPolicy *corev1.ConfigMap, secretWebhookKubeconfig *corev1.Secret) {
 	deployment.Spec.Template.Spec.Containers[0].Command = append(deployment.Spec.Template.Spec.Containers[0].Command, fmt.Sprintf("--audit-policy-file=%s/%s", volumeMountPathAuditPolicy, configMapAuditPolicyDataKey))
 
@@ -1438,7 +1406,7 @@ func (k *kubeAPIServer) handleAuditSettings(deployment *appsv1.Deployment, confi
 		Name:      volumeNameAuditPolicy,
 		MountPath: volumeMountPathAuditPolicy,
 	})
-	k.addVolume(deployment, corev1.Volume{
+	k.volumeData.AddVolume(deployment, corev1.Volume{
 		Name: volumeNameAuditPolicy,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -1465,7 +1433,7 @@ func (k *kubeAPIServer) handleAuditSettings(deployment *appsv1.Deployment, confi
 			MountPath: volumeMountPathAuditWebhookKubeconfig,
 			ReadOnly:  true,
 		})
-		k.addVolume(deployment, corev1.Volume{
+		k.volumeData.AddVolume(deployment, corev1.Volume{
 			Name: volumeNameAuditWebhookKubeconfig,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
@@ -1496,7 +1464,7 @@ func (k *kubeAPIServer) handleAuthenticationSettings(deployment *appsv1.Deployme
 			MountPath: volumeMountPathAuthenticationWebhookKubeconfig,
 			ReadOnly:  true,
 		})
-		k.addVolume(deployment, corev1.Volume{
+		k.volumeData.AddVolume(deployment, corev1.Volume{
 			Name: volumeNameAuthenticationWebhookKubeconfig,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
@@ -1532,7 +1500,7 @@ func (k *kubeAPIServer) handleAuthorizationSettings(deployment *appsv1.Deploymen
 				MountPath: volumeMountPathAuthorizationWebhookKubeconfig,
 				ReadOnly:  true,
 			})
-			k.addVolume(deployment, corev1.Volume{
+			k.volumeData.AddVolume(deployment, corev1.Volume{
 				Name: volumeNameAuthorizationWebhookKubeconfig,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{

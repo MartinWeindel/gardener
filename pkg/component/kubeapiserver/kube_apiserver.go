@@ -378,8 +378,7 @@ type kubeAPIServer struct {
 	values         Values
 
 	createStaticPodRound bool
-	volumeData           map[string][]byte
-	volumeDataErr        error
+	volumeData           *component.VolumeData
 }
 
 func (k *kubeAPIServer) Deploy(ctx context.Context) error {
@@ -567,12 +566,10 @@ func (k *kubeAPIServer) Deploy(ctx context.Context) error {
 	if k.values.CreateStaticPodScript {
 		dummyDeployment := k.emptyDeployment()
 		k.createStaticPodRound = true
-		k.volumeData = map[string][]byte{}
-		k.volumeDataErr = nil
+		k.volumeData = component.NewVolumeData(nil)
 		defer func() {
 			k.createStaticPodRound = false
 			k.volumeData = nil
-			k.volumeDataErr = nil
 		}()
 		if err := k.reconcileDeploymentFunc(
 			dummyDeployment,
@@ -599,10 +596,7 @@ func (k *kubeAPIServer) Deploy(ctx context.Context) error {
 		); err != nil {
 			return err
 		}
-		if k.volumeDataErr != nil {
-			return fmt.Errorf("collecting volume data failed: %w", k.volumeDataErr)
-		}
-		if err := k.writeStaticPodScript(ctx, &dummyDeployment.Spec.Template.Spec, k.volumeData); err != nil {
+		if err := k.writeStaticPodScript(ctx, &dummyDeployment.Spec.Template.Spec); err != nil {
 			return err
 		}
 	}
@@ -760,7 +754,7 @@ func getLabels() map[string]string {
 	}
 }
 
-func (k *kubeAPIServer) writeStaticPodScript(ctx context.Context, podSpec *corev1.PodSpec, volumeData map[string][]byte) error {
+func (k *kubeAPIServer) writeStaticPodScript(ctx context.Context, podSpec *corev1.PodSpec) error {
 	podName := k.values.NamePrefix + v1beta1constants.DeploymentNameKubeAPIServer
-	return component.WriteStaticPodScript(ctx, k.client.Client(), k.namespace, podName, podSpec, volumeData)
+	return k.volumeData.WriteStaticPodScript(ctx, k.client.Client(), k.namespace, podName, podSpec)
 }

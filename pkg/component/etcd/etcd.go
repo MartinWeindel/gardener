@@ -485,12 +485,13 @@ func (e *etcd) Deploy(ctx context.Context) error {
 				},
 			},
 		}
-		volumeData := map[string][]byte{
+		v := component.NewVolumeData(
+		map[string][]byte{
 			"tls/ca.crt":     etcdCASecret.Data[secretsutils.DataKeyCertificateBundle],
 			"tls/server.crt": serverSecret.Data["tls.crt"],
 			"tls/server.key": serverSecret.Data["tls.key"],
-		}
-		if err := component.WriteStaticPodScript(ctx, e.client, e.namespace, e.etcd.Name+"-0", podSpec, volumeData); err != nil {
+		})
+		if err := v.WriteStaticPodScript(ctx, e.client, e.namespace, e.etcd.Name+"-0", podSpec); err != nil {
 			return fmt.Errorf("creating static pod script failed: %w", err)
 		}
 	}
