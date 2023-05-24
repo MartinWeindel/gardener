@@ -481,7 +481,7 @@ func (e *etcd) Deploy(ctx context.Context) error {
 			},
 		}
 		volumeData := map[string][]byte{
-			"tls/ca.crt":     etcdCASecret.Data["bundle.crt"],
+			"tls/ca.crt":     etcdCASecret.Data["ca.crt"],
 			"tls/server.crt": serverSecret.Data["tls.crt"],
 			"tls/server.key": serverSecret.Data["tls.key"],
 		}
