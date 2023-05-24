@@ -302,6 +302,8 @@ func (r *Reconciler) prepareOperation(ctx context.Context, log logr.Logger, shoo
 		return nil, reconcile.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
+	o.CreateStaticPodScript = true
+
 	return o, reconcile.Result{}, nil
 }
 

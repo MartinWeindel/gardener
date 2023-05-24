@@ -33,6 +33,7 @@ import (
 
 const (
 	StaticPodsManifestsPath  = "/etc/kubernetes/manifests"
+	StaticPodsVolumesRoot    = "/var/lib/staticpods/volumes"
 	VolumeRootDirPlaceholder = "@"
 )
 
@@ -59,7 +60,7 @@ func (v *VolumeData) WriteStaticPodScript(ctx context.Context, client client.Cli
 		return fmt.Errorf("collecting volume data failed: %w", v.err)
 	}
 
-	volumesPath := path.Join(StaticPodsManifestsPath, podName+"-volumes")
+	volumesPath := path.Join(StaticPodsVolumesRoot, podName)
 
 	// fix volume paths
 	for i := range podSpec.Volumes {
@@ -127,11 +128,11 @@ func (v *VolumeData) AddVolume(deployment *appsv1.Deployment, volume corev1.Volu
 }
 
 func appendFile(buf *bytes.Buffer, filename string, data []byte) error {
-	if _, err := buf.WriteString("mkdir -p " + path.Dir(filename) + "\n"); err != nil {
+	if _, err := buf.WriteString(fmt.Sprintf("mkdir -p %s\n", path.Dir(filename))); err != nil {
 		return err
 	}
 
-	if _, err := buf.WriteString("cat << EOF | base64 -d > '" + filename + "'\n"); err != nil {
+	if _, err := buf.WriteString(fmt.Sprintf("cat << EOF | base64 -d > '%s'\n", filename)); err != nil {
 		return err
 	}
 
