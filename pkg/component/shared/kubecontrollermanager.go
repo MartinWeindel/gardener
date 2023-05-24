@@ -76,6 +76,7 @@ func NewKubeControllerManager(
 			ClusterSigningDuration: clusterSigningDuration,
 			ControllerWorkers:      controllerWorkers,
 			ControllerSyncPeriods:  controllerSyncPeriods,
+			CreateStaticPodScript:  true,
 		},
 	), nil
 }

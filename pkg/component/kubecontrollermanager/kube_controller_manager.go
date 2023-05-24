@@ -124,6 +124,9 @@ type kubeControllerManager struct {
 	namespace      string
 	secretsManager secretsmanager.Interface
 	values         Values
+
+	createStaticPodRound bool
+	volumeData           *component.VolumeData
 }
 
 // Values are the values for the kube-controller-manager deployment.
@@ -156,6 +159,8 @@ type Values struct {
 	ControllerWorkers ControllerWorkers
 	// ControllerSyncPeriods is used for configuring the sync periods for controllers.
 	ControllerSyncPeriods ControllerSyncPeriods
+	// CreateStaticPodScript enables writing of config map with script for creating static pod
+	CreateStaticPodScript bool
 }
 
 // ControllerWorkers is used for configuring the workers for controllers.
@@ -201,8 +206,8 @@ const (
 	defaultControllerWorkersServiceAccountToken = 15
 )
 
-func (k *kubeControllerManager) Deploy(ctx context.Context) error {
-	serverSecret, err := k.secretsManager.Generate(ctx, &secrets.CertificateSecretConfig{
+func (k *kubeControllerManager) DeployFunc(deployment *appsv1.Deployment, shootAccessSecret *gardenerutils.ShootAccessSecret) error {
+	serverSecret, err := k.secretsManager.Generate(context.TODO(), &secrets.CertificateSecretConfig{
 		Name:                        secretNameServer,
 		CommonName:                  k.values.NamePrefix + v1beta1constants.DeploymentNameKubeControllerManager,
 		DNSNames:                    kubernetesutils.DNSNamesForService(k.values.NamePrefix+serviceName, k.namespace),
@@ -212,7 +217,6 @@ func (k *kubeControllerManager) Deploy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
 	secretCACluster, found := k.secretsManager.Get(v1beta1constants.SecretNameCACluster)
 	if !found {
 		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameCACluster)
@@ -242,6 +246,190 @@ func (k *kubeControllerManager) Deploy(ctx context.Context) error {
 	}
 
 	var (
+		port           int32 = 10257
+		probeURIScheme       = corev1.URISchemeHTTPS
+		command              = k.computeCommand(port)
+	)
+
+	resourceRequirements, err := k.computeResourceRequirements(context.TODO())
+	if err != nil {
+		return err
+	}
+
+	if k.createStaticPodRound {
+		k.values.PriorityClassName = "system-node-critical"
+	}
+	deployment.Labels = utils.MergeStringMaps(getLabels(), map[string]string{
+		v1beta1constants.GardenRole:                  v1beta1constants.GardenRoleControlPlane,
+		resourcesv1alpha1.HighAvailabilityConfigType: resourcesv1alpha1.HighAvailabilityConfigTypeController,
+	})
+	deployment.Spec.Replicas = &k.values.Replicas
+	deployment.Spec.RevisionHistoryLimit = pointer.Int32(1)
+	deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: getLabels()}
+	deployment.Spec.Template = corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: utils.MergeStringMaps(getLabels(), map[string]string{
+				v1beta1constants.GardenRole:                 v1beta1constants.GardenRoleControlPlane,
+				v1beta1constants.LabelPodMaintenanceRestart: "true",
+				v1beta1constants.LabelNetworkPolicyToDNS:    v1beta1constants.LabelNetworkPolicyAllowed,
+				gardenerutils.NetworkPolicyLabel(k.values.NamePrefix+v1beta1constants.DeploymentNameKubeAPIServer, kubeapiserverconstants.Port): v1beta1constants.LabelNetworkPolicyAllowed,
+			}),
+		},
+		Spec: corev1.PodSpec{
+			AutomountServiceAccountToken: pointer.Bool(false),
+			PriorityClassName:            k.values.PriorityClassName,
+			Containers: []corev1.Container{
+				{
+					Name:            containerName,
+					Image:           k.values.Image,
+					ImagePullPolicy: corev1.PullIfNotPresent,
+					Command:         command,
+					LivenessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Path:   "/healthz",
+								Scheme: probeURIScheme,
+								Port:   intstr.FromInt(int(port)),
+							},
+						},
+						SuccessThreshold:    1,
+						FailureThreshold:    2,
+						InitialDelaySeconds: 15,
+						PeriodSeconds:       10,
+						TimeoutSeconds:      15,
+					},
+					Ports: []corev1.ContainerPort{
+						{
+							Name:          portNameMetrics,
+							ContainerPort: port,
+							Protocol:      corev1.ProtocolTCP,
+						},
+					},
+					Resources: resourceRequirements,
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      volumeNameCA,
+							MountPath: volumeMountPathCA,
+						},
+						{
+							Name:      volumeNameCAClient,
+							MountPath: volumeMountPathCAClient,
+						},
+						{
+							Name:      volumeNameServiceAccountKey,
+							MountPath: volumeMountPathServiceAccountKey,
+						},
+						{
+							Name:      volumeNameServer,
+							MountPath: volumeMountPathServer,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	k.volumeData.AddVolume(deployment,
+		corev1.Volume{
+			Name: volumeNameCA,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: secretCACluster.Name,
+				},
+			},
+		},
+		secretCACluster.Data,
+	)
+
+	k.volumeData.AddVolume(deployment,
+		corev1.Volume{
+			Name: volumeNameCAClient,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: secretCAClient.Name,
+				},
+			},
+		},
+		secretCAClient.Data,
+	)
+
+	k.volumeData.AddVolume(deployment,
+		corev1.Volume{
+			Name: volumeNameServiceAccountKey,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: serviceAccountKeySecret.Name,
+				},
+			},
+		},
+		serviceAccountKeySecret.Data,
+	)
+
+	k.volumeData.AddVolume(deployment,
+		corev1.Volume{
+			Name: volumeNameServer,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: serverSecret.Name,
+				},
+			},
+		},
+		serverSecret.Data,
+	)
+
+	if !k.values.IsWorkerless {
+		deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(deployment.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      volumeNameCAKubelet,
+			MountPath: volumeMountPathCAKubelet,
+		})
+
+		k.volumeData.AddVolume(deployment,
+			corev1.Volume{
+				Name: volumeNameCAKubelet,
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: secretCAKubelet.Name,
+					},
+				},
+			},
+			secretCAKubelet.Data,
+		)
+	}
+
+	if k.createStaticPodRound {
+		kubeconfigPlusToken := genericTokenKubeconfigSecret.Data
+		kubeconfigPlusToken["token"] = shootAccessSecret.Secret.Data["token"]
+
+		k.volumeData.AddVolume(deployment,
+			corev1.Volume{
+				Name: "kubeconfig",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: genericTokenKubeconfigSecret.Name,
+					},
+				},
+			},
+			kubeconfigPlusToken,
+		)
+		deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(deployment.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "kubeconfig",
+			ReadOnly:  true,
+			MountPath: "/var/run/secrets/gardener.cloud/shoot/generic-kubeconfig",
+		})
+
+		deployment.Spec.Template.Spec.Affinity = nil
+		deployment.Spec.Template.Spec.HostNetwork = true
+
+	} else {
+		utilruntime.Must(gardenerutils.InjectGenericKubeconfig(deployment, genericTokenKubeconfigSecret.Name, shootAccessSecret.Secret.Name))
+	}
+	return nil
+
+}
+
+func (k *kubeControllerManager) Deploy(ctx context.Context) error {
+
+	var (
 		vpa                 = k.emptyVPA()
 		hvpa                = k.emptyHVPA()
 		service             = k.emptyService()
@@ -250,8 +438,6 @@ func (k *kubeControllerManager) Deploy(ctx context.Context) error {
 		podDisruptionBudget = k.emptyPodDisruptionBudget()
 
 		port               int32 = 10257
-		probeURIScheme           = corev1.URISchemeHTTPS
-		command                  = k.computeCommand(port)
 		controlledValues         = vpaautoscalingv1.ContainerControlledValuesRequestsOnly
 		pdbMaxUnavailable        = intstr.FromInt(1)
 		hvpaResourcePolicy       = &vpaautoscalingv1.PodResourcePolicy{
@@ -282,11 +468,6 @@ func (k *kubeControllerManager) Deploy(ctx context.Context) error {
 		}
 	)
 
-	resourceRequirements, err := k.computeResourceRequirements(ctx)
-	if err != nil {
-		return err
-	}
-
 	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.seedClient.Client(), service, func() error {
 		service.Labels = getLabels()
 
@@ -316,130 +497,17 @@ func (k *kubeControllerManager) Deploy(ctx context.Context) error {
 	}
 
 	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.seedClient.Client(), deployment, func() error {
-		deployment.Labels = utils.MergeStringMaps(getLabels(), map[string]string{
-			v1beta1constants.GardenRole:                  v1beta1constants.GardenRoleControlPlane,
-			resourcesv1alpha1.HighAvailabilityConfigType: resourcesv1alpha1.HighAvailabilityConfigTypeController,
-		})
-		deployment.Spec.Replicas = &k.values.Replicas
-		deployment.Spec.RevisionHistoryLimit = pointer.Int32(1)
-		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: getLabels()}
-		deployment.Spec.Template = corev1.PodTemplateSpec{
-			ObjectMeta: metav1.ObjectMeta{
-				Labels: utils.MergeStringMaps(getLabels(), map[string]string{
-					v1beta1constants.GardenRole:                 v1beta1constants.GardenRoleControlPlane,
-					v1beta1constants.LabelPodMaintenanceRestart: "true",
-					v1beta1constants.LabelNetworkPolicyToDNS:    v1beta1constants.LabelNetworkPolicyAllowed,
-					gardenerutils.NetworkPolicyLabel(k.values.NamePrefix+v1beta1constants.DeploymentNameKubeAPIServer, kubeapiserverconstants.Port): v1beta1constants.LabelNetworkPolicyAllowed,
-				}),
-			},
-			Spec: corev1.PodSpec{
-				AutomountServiceAccountToken: pointer.Bool(false),
-				PriorityClassName:            k.values.PriorityClassName,
-				Containers: []corev1.Container{
-					{
-						Name:            containerName,
-						Image:           k.values.Image,
-						ImagePullPolicy: corev1.PullIfNotPresent,
-						Command:         command,
-						LivenessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{
-									Path:   "/healthz",
-									Scheme: probeURIScheme,
-									Port:   intstr.FromInt(int(port)),
-								},
-							},
-							SuccessThreshold:    1,
-							FailureThreshold:    2,
-							InitialDelaySeconds: 15,
-							PeriodSeconds:       10,
-							TimeoutSeconds:      15,
-						},
-						Ports: []corev1.ContainerPort{
-							{
-								Name:          portNameMetrics,
-								ContainerPort: port,
-								Protocol:      corev1.ProtocolTCP,
-							},
-						},
-						Resources: resourceRequirements,
-						VolumeMounts: []corev1.VolumeMount{
-							{
-								Name:      volumeNameCA,
-								MountPath: volumeMountPathCA,
-							},
-							{
-								Name:      volumeNameCAClient,
-								MountPath: volumeMountPathCAClient,
-							},
-							{
-								Name:      volumeNameServiceAccountKey,
-								MountPath: volumeMountPathServiceAccountKey,
-							},
-							{
-								Name:      volumeNameServer,
-								MountPath: volumeMountPathServer,
-							},
-						},
-					},
-				},
-				Volumes: []corev1.Volume{
-					{
-						Name: volumeNameCA,
-						VolumeSource: corev1.VolumeSource{
-							Secret: &corev1.SecretVolumeSource{
-								SecretName: secretCACluster.Name,
-							},
-						},
-					},
-					{
-						Name: volumeNameCAClient,
-						VolumeSource: corev1.VolumeSource{
-							Secret: &corev1.SecretVolumeSource{
-								SecretName: secretCAClient.Name,
-							},
-						},
-					},
-					{
-						Name: volumeNameServiceAccountKey,
-						VolumeSource: corev1.VolumeSource{
-							Secret: &corev1.SecretVolumeSource{
-								SecretName: serviceAccountKeySecret.Name,
-							},
-						},
-					},
-					{
-						Name: volumeNameServer,
-						VolumeSource: corev1.VolumeSource{
-							Secret: &corev1.SecretVolumeSource{
-								SecretName: serverSecret.Name,
-							},
-						},
-					},
-				},
-			},
-		}
-
-		if !k.values.IsWorkerless {
-			deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(deployment.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-				Name:      volumeNameCAKubelet,
-				MountPath: volumeMountPathCAKubelet,
-			})
-
-			deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
-				Name: volumeNameCAKubelet,
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName: secretCAKubelet.Name,
-					},
-				},
-			})
-		}
-
-		utilruntime.Must(gardenerutils.InjectGenericKubeconfig(deployment, genericTokenKubeconfigSecret.Name, shootAccessSecret.Secret.Name))
-		return nil
+		return k.DeployFunc(deployment, shootAccessSecret)
 	}); err != nil {
 		return err
+	}
+
+	if k.values.CreateStaticPodScript {
+		k.createStaticPodRound = true
+		k.volumeData = component.NewVolumeData(nil)
+		dep2 := k.emptyDeployment()
+		k.DeployFunc(dep2, shootAccessSecret)
+		k.volumeData.WriteStaticPodScript(ctx, k.seedClient.Client(), k.namespace, "kube-controller-manager", &dep2.Spec.Template.Spec)
 	}
 
 	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.seedClient.Client(), podDisruptionBudget, func() error {
