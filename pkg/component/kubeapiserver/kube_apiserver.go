@@ -15,15 +15,10 @@
 package kubeapiserver
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/gardener/gardener/pkg/controllerutils"
 	"net"
-	"path"
-	"sigs.k8s.io/yaml"
 	"time"
 
 	"github.com/Masterminds/semver"
@@ -97,9 +92,6 @@ const (
 	UserNameVPNSeedClient = "vpn-seed-client"
 
 	userName = "system:kube-apiserver:kubelet"
-
-	staticPodsManifestsPath = "/etc/kubernetes/manifests"
-	staticPodsVolumesPath   = staticPodsManifestsPath + "/volumes"
 )
 
 // Interface contains functions for a kube-apiserver deployer.
@@ -201,7 +193,7 @@ type Values struct {
 	VPN VPNConfig
 	// WatchCacheSizes are the configured sizes for the watch caches.
 	WatchCacheSizes *gardencorev1beta1.WatchCacheSizes
-	// CreateStaticPodScript
+	// CreateStaticPodScript enables writing of config map with script for creating static pod
 	CreateStaticPodScript bool
 }
 
@@ -766,51 +758,5 @@ func getLabels() map[string]string {
 
 func (k *kubeAPIServer) writeStaticPodScript(ctx context.Context, podSpec *corev1.PodSpec, volumeData map[string][]byte) error {
 	podName := k.values.NamePrefix + v1beta1constants.DeploymentNameKubeAPIServer
-	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "staticpod-" + podName, Namespace: k.namespace}}
-
-	buf := &bytes.Buffer{}
-	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client.Client(), cm, func() error {
-		pod := &corev1.Pod{
-			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
-			ObjectMeta: metav1.ObjectMeta{Name: podName, Namespace: "kube-system"},
-			Spec:       *podSpec,
-		}
-		podYaml, err := yaml.Marshal(pod)
-		if err != nil {
-			return fmt.Errorf("marshalling pod failed: %w", err)
-		}
-		filename := path.Join(staticPodsManifestsPath, podName)
-		if err := appendFile(buf, filename, []byte(podYaml)); err != nil {
-			return err
-		}
-		for name, data := range volumeData {
-			if err := appendFile(buf, path.Join(staticPodsVolumesPath, name), data); err != nil {
-				return err
-			}
-		}
-
-		cm.Data = map[string]string{"script": buf.String()}
-		return nil
-	})
-	return err
-}
-
-func appendFile(buf *bytes.Buffer, filename string, data []byte) error {
-	if _, err := buf.WriteString("mkdir -p " + path.Dir(filename) + "\n"); err != nil {
-		return err
-	}
-
-	if _, err := buf.WriteString("cat << EOF | base64 -d > '" + filename + "'\n"); err != nil {
-		return err
-	}
-
-	str := base64.StdEncoding.EncodeToString(data)
-	if _, err := buf.WriteString(str + "\n"); err != nil {
-		return err
-	}
-
-	if _, err := buf.WriteString("EOF\n"); err != nil {
-		return err
-	}
-	return nil
+	return component.WriteStaticPodScript(ctx, k.client.Client(), k.namespace, podName, podSpec, volumeData)
 }

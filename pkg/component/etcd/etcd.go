@@ -165,6 +165,8 @@ type Values struct {
 	PriorityClassName           string
 	HighAvailabilityEnabled     bool
 	TopologyAwareRoutingEnabled bool
+	// CreateStaticPodScript enables writing of config map with script for creating static pod
+	CreateStaticPodScript bool
 }
 
 func (e *etcd) Deploy(ctx context.Context) error {
@@ -411,6 +413,81 @@ func (e *etcd) Deploy(ctx context.Context) error {
 		return err
 	}
 
+	if e.values.CreateStaticPodScript {
+		dirOrCreate := corev1.HostPathDirectoryOrCreate
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Image: "quay.io/coreos/etcd:v3.5.1",
+					Name:  "etcd",
+					Command: []string{
+						"etcd",
+						"--name=etcd",
+						"--trusted-ca-file=/tls/ca.crt",
+						"--key-file=/tls/server.key",
+						"--cert-file=/tls/server.crt",
+						"--client-cert-auth",
+						"--listen-client-urls=https://0.0.0.0:2379",
+						"--advertise-client-urls=https://etcd-client.garden.svc:2379",
+						"--initial-cluster-state=new",
+						"--initial-cluster-token=new",
+						"--data-dir=/etcd-data",
+					},
+					Ports: []corev1.ContainerPort{
+						{
+							ContainerPort: 2379,
+							Name:          "client",
+							Protocol:      corev1.ProtocolTCP,
+						},
+						{
+							ContainerPort: 2380,
+							Name:          "discovery",
+							Protocol:      corev1.ProtocolTCP,
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "tls",
+							MountPath: "/tls",
+						},
+						{
+							Name:      "etcd-data",
+							MountPath: "/etcd-data",
+						},
+					},
+				},
+			},
+			Hostname: e.etcd.Name + "-0",
+			Volumes: []corev1.Volume{
+				{
+					Name: "etcd-data",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/var/lib/etcd/data/" + e.etcd.Name,
+							Type: &dirOrCreate,
+						},
+					},
+				},
+				{
+					Name: "tls",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: "/var/lib/etcd/tls/" + e.etcd.Name,
+							Type: &dirOrCreate,
+						},
+					},
+				},
+			},
+		}
+		volumeData := map[string][]byte{
+			"tls/ca.crt":     etcdCASecret.Data["ca.crt"],
+			"tls/server.crt": serverSecret.Data["tls.crt"],
+			"tls/server.key": serverSecret.Data["tls.key"],
+		}
+		if err := component.WriteStaticPodScript(ctx, e.client, e.namespace, e.etcd.Name+"-0", podSpec, volumeData); err != nil {
+			return fmt.Errorf("creating static pod script failed: %w", err)
+		}
+	}
 	if e.values.HvpaConfig != nil && e.values.HvpaConfig.Enabled {
 		var (
 			hpaLabels          = map[string]string{v1beta1constants.LabelRole: "etcd-hpa-" + e.values.Role}

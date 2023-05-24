@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/gardener/gardener/pkg/component"
 	"path"
 	"strconv"
 	"strings"
@@ -1408,7 +1409,7 @@ func (k *kubeAPIServer) addVolume(deployment *appsv1.Deployment, volume corev1.V
 			Name: volume.Name,
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: path.Join(staticPodsVolumesPath, volume.Name),
+					Path: path.Join(component.VolumeRootDirPlaceholder, volume.Name),
 					Type: &typ,
 				},
 			},
