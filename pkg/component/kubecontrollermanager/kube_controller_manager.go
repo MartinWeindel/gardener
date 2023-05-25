@@ -400,6 +400,8 @@ func (k *kubeControllerManager) DeployFunc(deployment *appsv1.Deployment, shootA
 		kubeconfigPlusToken := genericTokenKubeconfigSecret.Data
 		kubeconfigPlusToken["token"] = shootAccessSecret.Secret.Data["token"]
 
+		kubeconfigPlusToken["kubeconfig"] = []byte(strings.Replace(string(kubeconfigPlusToken["kubeconfig"]), "server: https://kube-apiserver", "server: https://127.0.0.1:443", 1))
+
 		k.volumeData.AddVolume(deployment,
 			corev1.Volume{
 				Name: "kubeconfig",
