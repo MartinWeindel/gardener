@@ -828,8 +828,6 @@ func (k *kubeAPIServer) handleSNISettings(deployment *appsv1.Deployment) {
 	deployment.Labels[v1beta1constants.LabelAPIServerExposure] = v1beta1constants.LabelAPIServerExposureGardenerManaged
 	if !k.createStaticPodRound {
 		deployment.Spec.Template.Spec.Containers[0].Command = append(deployment.Spec.Template.Spec.Containers[0].Command, fmt.Sprintf("--advertise-address=%s", k.values.SNI.AdvertiseAddress))
-	} else {
-		deployment.Spec.Template.Spec.Containers[0].Command = append(deployment.Spec.Template.Spec.Containers[0].Command, "--bind-address=127.0.0.1")
 	}
 }
 
