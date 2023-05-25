@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"text/template"
 
 	"github.com/Masterminds/semver"
@@ -128,6 +129,7 @@ func New(
 	replicas int32,
 	config *gardencorev1beta1.KubeSchedulerConfig,
 	runtimeKubernetesVersion *semver.Version,
+	createStaticPodScript bool,
 ) Interface {
 	return &kubeScheduler{
 		client:                        client,
@@ -138,6 +140,7 @@ func New(
 		replicas:                      replicas,
 		config:                        config,
 		runtimeVersionGreaterEqual123: versionutils.ConstraintK8sGreaterEqual123.Check(runtimeKubernetesVersion),
+		createStaticPodScript:         createStaticPodScript,
 	}
 }
 
@@ -151,6 +154,193 @@ type kubeScheduler struct {
 	config         *gardencorev1beta1.KubeSchedulerConfig
 
 	runtimeVersionGreaterEqual123 bool
+
+	createStaticPodScript bool
+	createStaticPodRound  bool
+	volumeData            *component.VolumeData
+}
+
+func (k *kubeScheduler) DeployFunc(deployment *appsv1.Deployment, serverSecret *corev1.Secret, shootAccessSecret *gardenerutils.ShootAccessSecret, configMap *corev1.ConfigMap) error {
+	genericTokenKubeconfigSecret, found := k.secretsManager.Get(v1beta1constants.SecretNameGenericTokenKubeconfig)
+	if !found {
+		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameGenericTokenKubeconfig)
+	}
+
+	clientCASecret, found := k.secretsManager.Get(v1beta1constants.SecretNameCAClient)
+	if !found {
+		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameCAClient)
+	}
+
+	var (
+		port           int32 = 10259
+		probeURIScheme       = corev1.URISchemeHTTPS
+		env                  = k.computeEnvironmentVariables()
+		command              = k.computeCommand(port)
+	)
+
+	deployment.Labels = utils.MergeStringMaps(getLabels(), map[string]string{
+		v1beta1constants.GardenRole:                  v1beta1constants.GardenRoleControlPlane,
+		resourcesv1alpha1.HighAvailabilityConfigType: resourcesv1alpha1.HighAvailabilityConfigTypeController,
+	})
+	deployment.Spec.Replicas = &k.replicas
+	deployment.Spec.RevisionHistoryLimit = pointer.Int32(1)
+	deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: getLabels()}
+	priorityClassName := v1beta1constants.PriorityClassNameShootControlPlane300
+	if k.createStaticPodRound {
+		priorityClassName = "system-node-critical"
+	}
+	deployment.Spec.Template = corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: utils.MergeStringMaps(getLabels(), map[string]string{
+				v1beta1constants.GardenRole:                 v1beta1constants.GardenRoleControlPlane,
+				v1beta1constants.LabelPodMaintenanceRestart: "true",
+				v1beta1constants.LabelNetworkPolicyToDNS:    v1beta1constants.LabelNetworkPolicyAllowed,
+				gardenerutils.NetworkPolicyLabel(v1beta1constants.DeploymentNameKubeAPIServer, kubeapiserverconstants.Port): v1beta1constants.LabelNetworkPolicyAllowed,
+			}),
+		},
+		Spec: corev1.PodSpec{
+			AutomountServiceAccountToken: pointer.Bool(false),
+			Containers: []corev1.Container{
+				{
+					Name:            containerName,
+					Image:           k.image,
+					ImagePullPolicy: corev1.PullIfNotPresent,
+					Command:         command,
+					LivenessProbe: &corev1.Probe{
+						ProbeHandler: corev1.ProbeHandler{
+							HTTPGet: &corev1.HTTPGetAction{
+								Path:   "/healthz",
+								Scheme: probeURIScheme,
+								Port:   intstr.FromInt(int(port)),
+							},
+						},
+						SuccessThreshold:    1,
+						FailureThreshold:    2,
+						InitialDelaySeconds: 15,
+						PeriodSeconds:       10,
+						TimeoutSeconds:      15,
+					},
+					Ports: []corev1.ContainerPort{
+						{
+							Name:          portNameMetrics,
+							ContainerPort: port,
+							Protocol:      corev1.ProtocolTCP,
+						},
+					},
+					Env: env,
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("23m"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      volumeNameClientCA,
+							MountPath: volumeMountPathClientCA,
+						},
+						{
+							Name:      volumeNameServer,
+							MountPath: volumeMountPathServer,
+						},
+						{
+							Name:      volumeNameConfig,
+							MountPath: volumeMountPathConfig,
+						},
+					},
+				},
+			},
+			PriorityClassName: priorityClassName,
+			Volumes:           []corev1.Volume{},
+		},
+	}
+
+	if !k.createStaticPodRound {
+		k.volumeData.AddVolume(deployment,
+			corev1.Volume{
+				Name: volumeNameClientCA,
+				VolumeSource: corev1.VolumeSource{
+					Projected: &corev1.ProjectedVolumeSource{
+						DefaultMode: pointer.Int32(420),
+						Sources: []corev1.VolumeProjection{
+							{
+								Secret: &corev1.SecretProjection{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: clientCASecret.Name,
+									},
+									Items: []corev1.KeyToPath{{
+										Key:  secrets.DataKeyCertificateBundle,
+										Path: fileNameClientCA,
+									}},
+								},
+							},
+						},
+					},
+				},
+			}, map[string][]byte{})
+	} else {
+		k.volumeData.AddVolume(deployment,
+			corev1.Volume{
+				Name: volumeNameClientCA,
+			}, map[string][]byte{
+				secrets.DataKeyCertificateBundle: clientCASecret.Data[secrets.DataKeyCertificateBundle],
+			})
+	}
+
+	k.volumeData.AddVolume(deployment,
+		corev1.Volume{
+			Name: volumeNameServer,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: serverSecret.Name,
+				},
+			},
+		}, serverSecret.Data)
+
+	k.volumeData.AddVolume(deployment,
+		corev1.Volume{
+			Name: volumeNameConfig,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: configMap.Name,
+					},
+				},
+			},
+		}, configMap.Data)
+
+	if k.createStaticPodRound {
+		kubeconfigPlusToken := genericTokenKubeconfigSecret.Data
+		kubeconfigPlusToken["token"] = shootAccessSecret.Secret.Data["token"]
+
+		kubeconfigPlusToken["kubeconfig"] = []byte(strings.Replace(string(kubeconfigPlusToken["kubeconfig"]), "server: https://kube-apiserver", "server: https://127.0.0.1:443", 1))
+
+		k.volumeData.AddVolume(deployment,
+			corev1.Volume{
+				Name: "kubeconfig",
+				VolumeSource: corev1.VolumeSource{
+					Secret: &corev1.SecretVolumeSource{
+						SecretName: genericTokenKubeconfigSecret.Name,
+					},
+				},
+			},
+			kubeconfigPlusToken,
+		)
+		deployment.Spec.Template.Spec.Containers[0].VolumeMounts = append(deployment.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+			Name:      "kubeconfig",
+			ReadOnly:  true,
+			MountPath: "/var/run/secrets/gardener.cloud/shoot/generic-kubeconfig",
+		})
+
+		deployment.Spec.Template.Spec.Affinity = nil
+		deployment.Spec.Template.Spec.HostNetwork = true
+
+	} else {
+		utilruntime.Must(gardenerutils.InjectGenericKubeconfig(deployment, genericTokenKubeconfigSecret.Name, shootAccessSecret.Secret.Name))
+	}
+
+	utilruntime.Must(references.InjectAnnotations(deployment))
+	return nil
 }
 
 func (k *kubeScheduler) Deploy(ctx context.Context) error {
@@ -163,16 +353,6 @@ func (k *kubeScheduler) Deploy(ctx context.Context) error {
 	}, secretsmanager.SignedByCA(v1beta1constants.SecretNameCACluster), secretsmanager.Rotate(secretsmanager.InPlace))
 	if err != nil {
 		return err
-	}
-
-	genericTokenKubeconfigSecret, found := k.secretsManager.Get(v1beta1constants.SecretNameGenericTokenKubeconfig)
-	if !found {
-		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameGenericTokenKubeconfig)
-	}
-
-	clientCASecret, found := k.secretsManager.Get(v1beta1constants.SecretNameCAClient)
-	if !found {
-		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameCAClient)
 	}
 
 	componentConfigYAML, err := k.computeComponentConfig()
@@ -200,9 +380,6 @@ func (k *kubeScheduler) Deploy(ctx context.Context) error {
 		vpaUpdateMode           = vpaautoscalingv1.UpdateModeAuto
 		controlledValues        = vpaautoscalingv1.ContainerControlledValuesRequestsOnly
 		port              int32 = 10259
-		probeURIScheme          = corev1.URISchemeHTTPS
-		env                     = k.computeEnvironmentVariables()
-		command                 = k.computeCommand(port)
 	)
 
 	if err := k.client.Create(ctx, configMap); client.IgnoreAlreadyExists(err) != nil {
@@ -236,124 +413,21 @@ func (k *kubeScheduler) Deploy(ctx context.Context) error {
 	}
 
 	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client, deployment, func() error {
-		deployment.Labels = utils.MergeStringMaps(getLabels(), map[string]string{
-			v1beta1constants.GardenRole:                  v1beta1constants.GardenRoleControlPlane,
-			resourcesv1alpha1.HighAvailabilityConfigType: resourcesv1alpha1.HighAvailabilityConfigTypeController,
-		})
-		deployment.Spec.Replicas = &k.replicas
-		deployment.Spec.RevisionHistoryLimit = pointer.Int32(1)
-		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: getLabels()}
-		deployment.Spec.Template = corev1.PodTemplateSpec{
-			ObjectMeta: metav1.ObjectMeta{
-				Labels: utils.MergeStringMaps(getLabels(), map[string]string{
-					v1beta1constants.GardenRole:                 v1beta1constants.GardenRoleControlPlane,
-					v1beta1constants.LabelPodMaintenanceRestart: "true",
-					v1beta1constants.LabelNetworkPolicyToDNS:    v1beta1constants.LabelNetworkPolicyAllowed,
-					gardenerutils.NetworkPolicyLabel(v1beta1constants.DeploymentNameKubeAPIServer, kubeapiserverconstants.Port): v1beta1constants.LabelNetworkPolicyAllowed,
-				}),
-			},
-			Spec: corev1.PodSpec{
-				AutomountServiceAccountToken: pointer.Bool(false),
-				Containers: []corev1.Container{
-					{
-						Name:            containerName,
-						Image:           k.image,
-						ImagePullPolicy: corev1.PullIfNotPresent,
-						Command:         command,
-						LivenessProbe: &corev1.Probe{
-							ProbeHandler: corev1.ProbeHandler{
-								HTTPGet: &corev1.HTTPGetAction{
-									Path:   "/healthz",
-									Scheme: probeURIScheme,
-									Port:   intstr.FromInt(int(port)),
-								},
-							},
-							SuccessThreshold:    1,
-							FailureThreshold:    2,
-							InitialDelaySeconds: 15,
-							PeriodSeconds:       10,
-							TimeoutSeconds:      15,
-						},
-						Ports: []corev1.ContainerPort{
-							{
-								Name:          portNameMetrics,
-								ContainerPort: port,
-								Protocol:      corev1.ProtocolTCP,
-							},
-						},
-						Env: env,
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{
-								corev1.ResourceCPU:    resource.MustParse("23m"),
-								corev1.ResourceMemory: resource.MustParse("64Mi"),
-							},
-						},
-						VolumeMounts: []corev1.VolumeMount{
-							{
-								Name:      volumeNameClientCA,
-								MountPath: volumeMountPathClientCA,
-							},
-							{
-								Name:      volumeNameServer,
-								MountPath: volumeMountPathServer,
-							},
-							{
-								Name:      volumeNameConfig,
-								MountPath: volumeMountPathConfig,
-							},
-						},
-					},
-				},
-				PriorityClassName: v1beta1constants.PriorityClassNameShootControlPlane300,
-				Volumes: []corev1.Volume{
-					{
-						Name: volumeNameClientCA,
-						VolumeSource: corev1.VolumeSource{
-							Projected: &corev1.ProjectedVolumeSource{
-								DefaultMode: pointer.Int32(420),
-								Sources: []corev1.VolumeProjection{
-									{
-										Secret: &corev1.SecretProjection{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: clientCASecret.Name,
-											},
-											Items: []corev1.KeyToPath{{
-												Key:  secrets.DataKeyCertificateBundle,
-												Path: fileNameClientCA,
-											}},
-										},
-									},
-								},
-							},
-						},
-					},
-					{
-						Name: volumeNameServer,
-						VolumeSource: corev1.VolumeSource{
-							Secret: &corev1.SecretVolumeSource{
-								SecretName: serverSecret.Name,
-							},
-						},
-					},
-					{
-						Name: volumeNameConfig,
-						VolumeSource: corev1.VolumeSource{
-							ConfigMap: &corev1.ConfigMapVolumeSource{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: configMap.Name,
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-
-		utilruntime.Must(gardenerutils.InjectGenericKubeconfig(deployment, genericTokenKubeconfigSecret.Name, shootAccessSecret.Secret.Name))
-		utilruntime.Must(references.InjectAnnotations(deployment))
-		return nil
+		return k.DeployFunc(deployment, serverSecret, shootAccessSecret, configMap)
 	}); err != nil {
 		return err
+	}
+
+	if k.createStaticPodScript {
+		k.createStaticPodRound = true
+		k.volumeData = component.NewVolumeData(nil)
+		dep2 := k.emptyDeployment()
+		if err := k.DeployFunc(dep2, serverSecret, shootAccessSecret, configMap); err != nil {
+			return err
+		}
+		if err := k.volumeData.WriteStaticPodScript(ctx, k.client, k.namespace, "kube-scheduler", &dep2.Spec.Template.Spec); err != nil {
+			return err
+		}
 	}
 
 	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.client, podDisruptionBudget, func() error {

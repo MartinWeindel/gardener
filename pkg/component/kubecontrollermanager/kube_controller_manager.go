@@ -508,8 +508,12 @@ func (k *kubeControllerManager) Deploy(ctx context.Context) error {
 		k.createStaticPodRound = true
 		k.volumeData = component.NewVolumeData(nil)
 		dep2 := k.emptyDeployment()
-		k.DeployFunc(dep2, shootAccessSecret)
-		k.volumeData.WriteStaticPodScript(ctx, k.seedClient.Client(), k.namespace, "kube-controller-manager", &dep2.Spec.Template.Spec)
+		if err := k.DeployFunc(dep2, shootAccessSecret); err != nil {
+			return err
+		}
+		if err := k.volumeData.WriteStaticPodScript(ctx, k.seedClient.Client(), k.namespace, "kube-controller-manager", &dep2.Spec.Template.Spec); err != nil {
+			return err
+		}
 	}
 
 	if _, err := controllerutils.GetAndCreateOrMergePatch(ctx, k.seedClient.Client(), podDisruptionBudget, func() error {
