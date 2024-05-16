@@ -2480,6 +2480,10 @@ rules:
 								Value: strconv.Itoa(index),
 							},
 							{
+								Name:  "IS_HA",
+								Value: "true",
+							},
+							{
 								Name:  "HA_VPN_SERVERS",
 								Value: "2",
 							},
@@ -2490,10 +2494,6 @@ rules:
 							{
 								Name:  "OPENVPN_PORT",
 								Value: "1194",
-							},
-							{
-								Name:  "DO_NOT_CONFIGURE_KERNEL_SETTINGS",
-								Value: "true",
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -2534,15 +2534,8 @@ rules:
 				initContainer := haVPNClientContainerFor(0)
 				initContainer.Name = "vpn-client-init"
 				initContainer.LivenessProbe = nil
+				initContainer.Args = []string{"setup"}
 				initContainer.Env = append(initContainer.Env, []corev1.EnvVar{
-					{
-						Name:  "CONFIGURE_BONDING",
-						Value: "true",
-					},
-					{
-						Name:  "EXIT_AFTER_CONFIGURING_KERNEL_SETTINGS",
-						Value: "true",
-					},
 					{
 						Name: "POD_NAME",
 						ValueFrom: &corev1.EnvVarSource{
@@ -2576,7 +2569,7 @@ rules:
 					Name:            "vpn-path-controller",
 					Image:           "vpn-client-image:really-latest",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"/path-controller.sh"},
+					Args:            []string{"path-controller"},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "SERVICE_NETWORK",
@@ -2589,6 +2582,10 @@ rules:
 						{
 							Name:  "NODE_NETWORK",
 							Value: values.VPN.NodeNetworkCIDRs[0].String(),
+						},
+						{
+							Name:  "IS_HA",
+							Value: "true",
 						},
 						{
 							Name:  "HA_VPN_CLIENTS",
@@ -2606,6 +2603,7 @@ rules:
 					},
 					SecurityContext: &corev1.SecurityContext{
 						RunAsNonRoot: ptr.To(false),
+						RunAsGroup:   ptr.To[int64](0),
 						RunAsUser:    ptr.To[int64](0),
 						Capabilities: &corev1.Capabilities{
 							Add: []corev1.Capability{"NET_ADMIN"},
