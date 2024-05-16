@@ -455,10 +455,6 @@ var _ = Describe("VPNShoot", func() {
 						Value: header,
 					},
 					corev1.EnvVar{
-						Name:  "DO_NOT_CONFIGURE_KERNEL_SETTINGS",
-						Value: "true",
-					},
-					corev1.EnvVar{
 						Name:  "IS_SHOOT_CLIENT",
 						Value: "true",
 					},
@@ -589,6 +585,7 @@ var _ = Describe("VPNShoot", func() {
 							Name:            "vpn-shoot-init",
 							Image:           image,
 							ImagePullPolicy: corev1.PullIfNotPresent,
+							Args:            []string{"setup"},
 							Env: []corev1.EnvVar{
 								{
 									Name:  "IS_SHOOT_CLIENT",
@@ -602,10 +599,6 @@ var _ = Describe("VPNShoot", func() {
 										},
 									},
 								},
-								{
-									Name:  "EXIT_AFTER_CONFIGURING_KERNEL_SETTINGS",
-									Value: "true",
-								},
 							},
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: ptr.To(true),
@@ -616,7 +609,7 @@ var _ = Describe("VPNShoot", func() {
 									corev1.ResourceMemory: resource.MustParse("32Mi"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceMemory: resource.MustParse("32Mi"),
+									corev1.ResourceMemory: resource.MustParse("100Mi"),
 								},
 							},
 						},
@@ -679,7 +672,7 @@ var _ = Describe("VPNShoot", func() {
 				if highAvailable {
 					reversedVPNInitContainers[0].Env = append(reversedVPNInitContainers[0].Env, []corev1.EnvVar{
 						{
-							Name:  "CONFIGURE_BONDING",
+							Name:  "IS_HA",
 							Value: "true",
 						},
 						{
