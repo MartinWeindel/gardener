@@ -634,10 +634,6 @@ func (k *kubeAPIServer) handleVPNSettingsHA(
 			Value: "true",
 		},
 		{
-			Name:  "EXIT_AFTER_CONFIGURING_KERNEL_SETTINGS",
-			Value: "true",
-		},
-		{
 			Name: "POD_NAME",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{
