@@ -442,6 +442,135 @@ var _ = Describe("Generate", func() {
 				Expect(secretInfos.old.obj).To(Equal(secret))
 				Expect(secretInfos.bundle.obj).NotTo(PointTo(Equal(oldBundleSecret)))
 			})
+
+			It("should rotate a CA secret and add old and new to the corresponding bundle, but removes old ca if outdated", func() {
+				config.Validity = ptr.To(2 * time.Minute)
+
+				By("Generate new secret")
+				secret, err := m.Generate(ctx, config)
+				Expect(err).NotTo(HaveOccurred())
+				expectSecretWasCreated(ctx, fakeClient, secret)
+
+				By("storing old bundle secret")
+				secretInfos, found := m.getFromStore(name)
+				Expect(found).To(BeTrue())
+				oldBundleSecret := secretInfos.bundle.obj
+
+				By("Change secret config and generate again")
+				mgr, err := New(ctx, logr.Discard(), fakeClock, fakeClient, namespace, identity, Config{SecretNamesToTimes: map[string]time.Time{name: time.Now()}})
+				Expect(err).NotTo(HaveOccurred())
+				m = mgr.(*manager)
+
+				lastCommonName := config.CommonName
+				newSecret, err := m.Generate(ctx, config, Rotate(KeepOld))
+				Expect(err).NotTo(HaveOccurred())
+				expectSecretWasCreated(ctx, fakeClient, newSecret)
+
+				config.CommonName = lastCommonName
+				newSecret2, err := m.Generate(ctx, config, Rotate(KeepOld))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(newSecret2.Name).To(Equal(newSecret.Name))
+				fakeClock.SetTime(time.Now())
+
+				By("Find created bundle secret")
+				secretList := &corev1.SecretList{}
+				Expect(fakeClient.List(ctx, secretList, client.InNamespace(namespace), client.MatchingLabels{
+					"managed-by":       "secrets-manager",
+					"manager-identity": "test",
+					"bundle-for":       name,
+				})).To(Succeed())
+				Expect(secretList.Items).To(HaveLen(2))
+
+				By("Verify internal store reflects changes")
+				secretInfos, found = m.getFromStore(name)
+				Expect(found).To(BeTrue())
+				Expect(secretInfos.current.obj).To(Equal(newSecret))
+				Expect(secretInfos.old.obj).To(Equal(secret))
+				Expect(secretInfos.bundle.obj).NotTo(PointTo(Equal(oldBundleSecret)))
+				bundleSecret2 := secretInfos.bundle.obj
+
+				By("Call generate a second time")
+				config.CommonName = lastCommonName
+				newSecret2b, err := m.Generate(ctx, config, Rotate(KeepOld))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(newSecret2b.Name).To(Equal(newSecret.Name))
+
+				By("Find created bundle secret")
+				secretList = &corev1.SecretList{}
+				Expect(fakeClient.List(ctx, secretList, client.InNamespace(namespace), client.MatchingLabels{
+					"managed-by":       "secrets-manager",
+					"manager-identity": "test",
+					"bundle-for":       name,
+				})).To(Succeed())
+				Expect(secretList.Items).To(HaveLen(2))
+
+				By("Call generate after old certificate has expired")
+				fakeClock.Step(3 * time.Minute)
+				config.CommonName = lastCommonName
+				newSecret3, err := m.Generate(ctx, config, Rotate(KeepOld))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(newSecret3.Name).To(Equal(newSecret.Name))
+
+				By("Find created bundle secret")
+				secretList = &corev1.SecretList{}
+				Expect(fakeClient.List(ctx, secretList, client.InNamespace(namespace), client.MatchingLabels{
+					"managed-by":       "secrets-manager",
+					"manager-identity": "test",
+					"bundle-for":       name,
+				})).To(Succeed())
+				Expect(secretList.Items).To(HaveLen(3))
+
+				By("Verify internal store reflects changes")
+				secretInfos, found = m.getFromStore(name)
+				Expect(found).To(BeTrue())
+				Expect(secretInfos.current.obj).To(Equal(newSecret))
+				Expect(secretInfos.old).To(BeNil())
+				bundleSecret3 := secretInfos.bundle.obj
+				Expect(bundleSecret3).NotTo(PointTo(Equal(oldBundleSecret)))
+				Expect(bundleSecret3).NotTo(PointTo(Equal(bundleSecret2)))
+				Expect(len(oldBundleSecret.Data[secretsutils.DataKeyCertificateBundle])).NotTo(BeZero())
+				Expect(len(bundleSecret2.Data[secretsutils.DataKeyCertificateBundle])).NotTo(BeZero())
+				Expect(len(bundleSecret3.Data[secretsutils.DataKeyCertificateBundle])).NotTo(BeZero())
+				// bundleSecret3 should contain only new CA
+				Expect(len(bundleSecret3.Data[secretsutils.DataKeyCertificateBundle])).To(Equal(len(bundleSecret2.Data[secretsutils.DataKeyCertificateBundle]) - len(oldBundleSecret.Data[secretsutils.DataKeyCertificateBundle])))
+			})
+
+			It("should drop the old secret from the bundle if it is not valid anymore", func() {
+				By("Generate new secret")
+				secret, err := m.Generate(ctx, config)
+				Expect(err).NotTo(HaveOccurred())
+				expectSecretWasCreated(ctx, fakeClient, secret)
+
+				By("storing old bundle secret")
+				secretInfos, found := m.getFromStore(name)
+				Expect(found).To(BeTrue())
+				oldBundleSecret := secretInfos.bundle.obj
+
+				By("Change secret config and generate again")
+				mgr, err := New(ctx, logr.Discard(), fakeClock, fakeClient, namespace, identity, Config{SecretNamesToTimes: map[string]time.Time{name: time.Now()}})
+				Expect(err).NotTo(HaveOccurred())
+				m = mgr.(*manager)
+
+				newSecret, err := m.Generate(ctx, config, Rotate(KeepOld))
+				Expect(err).NotTo(HaveOccurred())
+				expectSecretWasCreated(ctx, fakeClient, newSecret)
+
+				By("Find created bundle secret")
+				secretList := &corev1.SecretList{}
+				Expect(fakeClient.List(ctx, secretList, client.InNamespace(namespace), client.MatchingLabels{
+					"managed-by":       "secrets-manager",
+					"manager-identity": "test",
+					"bundle-for":       name,
+				})).To(Succeed())
+				Expect(secretList.Items).To(HaveLen(2))
+
+				By("Verify internal store reflects changes")
+				secretInfos, found = m.getFromStore(name)
+				Expect(found).To(BeTrue())
+				Expect(secretInfos.current.obj).To(Equal(newSecret))
+				Expect(secretInfos.old.obj).To(Equal(secret))
+				Expect(secretInfos.bundle.obj).NotTo(PointTo(Equal(oldBundleSecret)))
+			})
 		})
 
 		Context("for certificate secrets", func() {

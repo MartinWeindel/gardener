@@ -336,6 +336,14 @@ func (m *manager) reconcileSecret(ctx context.Context, secret *corev1.Secret, la
 	return m.client.Patch(ctx, secret, patch)
 }
 
+func (m *manager) isStillValidCertificate(caCert []byte) (bool, error) {
+	certificate, err := utils.DecodeCertificate(caCert)
+	if err != nil {
+		return false, err
+	}
+	return m.clock.Now().Before(certificate.NotAfter), nil
+}
+
 // GenerateOption is some configuration that modifies options for a Generate request.
 type GenerateOption func(Interface, secretsutils.ConfigInterface, *GenerateOptions) error
 

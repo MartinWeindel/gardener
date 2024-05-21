@@ -232,7 +232,13 @@ func (m *manager) addToStore(name string, secret *corev1.Secret, class secretCla
 	case current:
 		secrets.current = info
 	case old:
-		secrets.old = &info
+		if oldCert := secret.Data[secretsutils.DataKeyCertificateCA]; oldCert == nil {
+			secrets.old = &info
+		} else if valid, _ := m.isStillValidCertificate(oldCert); valid {
+			secrets.old = &info
+		} else {
+			secrets.old = nil
+		}
 	case bundle:
 		secrets.bundle = &info
 	}
