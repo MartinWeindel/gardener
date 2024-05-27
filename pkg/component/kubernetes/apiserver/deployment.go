@@ -628,6 +628,7 @@ func (k *kubeAPIServer) handleVPNSettingsHA(
 	container := *k.vpnSeedClientContainer(0)
 	container.Name = "vpn-client-init"
 	container.Args = []string{"setup"}
+	container.Command = nil
 	container.Env = append(container.Env, []corev1.EnvVar{
 		{
 			Name: "POD_NAME",
@@ -758,6 +759,7 @@ func (k *kubeAPIServer) vpnSeedClientContainer(index int) *corev1.Container {
 		Name:            fmt.Sprintf("%s-%d", containerNameVPNSeedClient, index),
 		Image:           k.values.Images.VPNClient,
 		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"/run-shoot-client.sh"},
 		Env: []corev1.EnvVar{
 			{
 				Name:  "ENDPOINT",
