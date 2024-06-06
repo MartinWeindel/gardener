@@ -631,20 +631,6 @@ var _ = Describe("VPNShoot", func() {
 					volumes = volumesFor(secretNameClients, secretNameCA, secretNameTLSAuth, highAvailable)
 				)
 
-				if disableRewrite {
-					initContainer.Args = nil
-					initContainer.Env = append(initContainer.Env,
-						corev1.EnvVar{
-							Name:  "EXIT_AFTER_CONFIGURING_KERNEL_SETTINGS",
-							Value: "true",
-						},
-						corev1.EnvVar{
-							Name:  "CONFIGURE_BONDING",
-							Value: "true",
-						},
-					)
-				}
-
 				for _, item := range secretNameClients {
 					annotations[references.AnnotationKey(references.KindSecret, item)] = item
 				}
@@ -712,6 +698,23 @@ var _ = Describe("VPNShoot", func() {
 						},
 					}...)
 				}
+				if disableRewrite {
+					initContainer.Args = nil
+					initContainer.Env = append(initContainer.Env,
+						corev1.EnvVar{
+							Name:  "EXIT_AFTER_CONFIGURING_KERNEL_SETTINGS",
+							Value: "true",
+						})
+					if highAvailable {
+						initContainer.Env = append(initContainer.Env,
+							corev1.EnvVar{
+								Name:  "CONFIGURE_BONDING",
+								Value: "true",
+							},
+						)
+					}
+				}
+
 				obj.Spec.InitContainers = []corev1.Container{initContainer}
 
 				return obj
@@ -958,6 +961,38 @@ var _ = Describe("VPNShoot", func() {
 					It("should successfully deploy all resources", func() {
 						Expect(managedResource).To(contain(pdbFor(true)))
 					})
+				})
+
+				AfterEach(func() {
+					values.HighAvailabilityEnabled = false
+				})
+			})
+
+			Context("w/ VPA and high availability and disabled Go rewrite", func() {
+				BeforeEach(func() {
+					values.VPAEnabled = true
+					values.HighAvailabilityEnabled = true
+					values.HighAvailabilityNumberOfSeedServers = 3
+					values.HighAvailabilityNumberOfShootClients = 2
+					values.DisableRewrite = true
+				})
+
+				JustBeforeEach(func() {
+					var (
+						secretNameClient0 = expectVPNShootSecret(manifests, "-0")
+						secretNameClient1 = expectVPNShootSecret(manifests, "-1")
+						secretNameCA      = expectCASecret(manifests)
+						secretNameTLSAuth = expectTLSAuthSecret(manifests)
+					)
+
+					statefulSet := &appsv1.StatefulSet{}
+					Expect(runtime.DecodeInto(newCodec(), managedResourceSecret.Data["statefulset__kube-system__vpn-shoot.yaml"], statefulSet)).To(Succeed())
+					expected := statefulSetFor(3, 2, []string{secretNameClient0, secretNameClient1}, secretNameCA, secretNameTLSAuth)
+					Expect(statefulSet).To(DeepEqual(expected))
+				})
+
+				It("should successfully deploy all resources", func() {
+					// nothing to check additionally
 				})
 
 				AfterEach(func() {
