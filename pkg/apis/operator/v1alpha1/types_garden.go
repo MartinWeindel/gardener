@@ -53,10 +53,42 @@ type GardenList struct {
 
 // GardenSpec contains the specification of a garden environment.
 type GardenSpec struct {
+	// GardenDNS is the DNS configuration for the garden.
+	DNS GardenDNS `json:"dns"`
 	// RuntimeCluster contains configuration for the runtime cluster.
 	RuntimeCluster RuntimeCluster `json:"runtimeCluster"`
 	// VirtualCluster contains configuration for the virtual cluster.
 	VirtualCluster VirtualCluster `json:"virtualCluster"`
+}
+
+// GardenDNS is the DNS configuration for the garden.
+type GardenDNS struct {
+	// PrimaryDomain is the primary domain used by the garden. The domain name will be used for many purposes.
+	PrimaryDomain DNSDomain `json:"primaryDomain"`
+	// SecondaryDomains are the domains used by the garden for CNAME records.
+	// +optional
+	SecondaryDomains []DNSDomain `json:"secondaryDomains,omitempty"`
+	// InternalDomain is the domain name used for internal records for the kube-apiserver of shoot clusters.
+	InternalDomain DNSDomain `json:"internalDomain"`
+	// DefaultDomains are the domains used for external records for endpoints of shoot clusters.
+	// +optional
+	DefaultDomains []DNSDomain `json:"defaultDomains,omitempty"`
+}
+
+// DNSDomain is a base domain used by the landscape.
+type DNSDomain struct {
+	// Name is the base domain name.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// Type is the DNS provider type.
+	// +kubebuilder:validation:MinLength=1
+	Type string `json:"type"`
+	// SecretRef contains the secret reference with the credentials for the DNS provider.
+	SecretRef corev1.LocalObjectReference `json:"secretRef"`
+	// Zone is the hosted zone id managing the domain name.
+	// +kubebuilder:validation:MinLength=1
+	// +optional
+	Zone *string `json:"zone,omitempty"`
 }
 
 // RuntimeCluster contains configuration for the runtime cluster.
