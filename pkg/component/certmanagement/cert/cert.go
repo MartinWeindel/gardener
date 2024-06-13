@@ -6,6 +6,12 @@ import (
 	"time"
 
 	certmanv1alpha1 "github.com/gardener/cert-management/pkg/apis/cert/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	operatorv1alpha1 "github.com/gardener/gardener/pkg/apis/operator/v1alpha1"
@@ -14,11 +20,6 @@ import (
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/component"
 	"github.com/gardener/gardener/pkg/utils/managedresources"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -34,16 +35,22 @@ const (
 	appName = "app.kubernetes.io/name"
 )
 
+// Interface contains functions for deploying the certificates
+type Interface interface {
+	component.DeployWaiter
+	DeployCertUnmanagedSeeds(ctx context.Context, virtualClient client.Client) error
+}
+
 type cert struct {
 	values        Values
 	runtimeClient client.Client
-	virtualClient client.Client
 }
 
 // Values is a set of configuration values for the cert component.
 type Values struct {
 	DNS       operatorv1alpha1.GardenDNS
 	Namespace string
+	Disabled  bool
 }
 
 var injectedLabels = map[string]string{appName: componentName}
@@ -51,23 +58,21 @@ var injectedLabels = map[string]string{appName: componentName}
 // New creates a new Deployer for the cert component.
 func New(
 	runtimeClient client.Client,
-	virtualClient client.Client,
 	values Values,
-) component.DeployWaiter {
+) Interface {
 	return &cert{
 		values:        values,
 		runtimeClient: runtimeClient,
-		virtualClient: virtualClient,
 	}
 }
 
 var _ component.DeployWaiter = &cert{}
 
 func (c *cert) Deploy(ctx context.Context) error {
-	if err := c.deployCertRuntimeCluster(ctx); err != nil {
-		return err
+	if c.values.Disabled {
+		return nil
 	}
-	return c.deployCertUnmanagedSeeds(ctx)
+	return c.deployCertRuntimeCluster(ctx)
 }
 
 func (c *cert) Destroy(ctx context.Context) error {
@@ -145,11 +150,15 @@ func (c *cert) deployCertRuntimeCluster(ctx context.Context) error {
 	return nil
 }
 
-func (c *cert) deployCertUnmanagedSeeds(ctx context.Context) error {
+// DeployCertUnmanagedSeeds deploys certificate resources for unmanaged seeds.
+func (c *cert) DeployCertUnmanagedSeeds(ctx context.Context, virtualClient client.Client) error {
+	if c.values.Disabled {
+		return nil
+	}
 	registry := managedresources.NewRegistry(kubernetes.SeedScheme, kubernetes.SeedCodec, kubernetes.SeedSerializer)
 
 	managedSeedList := seedmanagementv1alpha1.ManagedSeedList{}
-	if err := c.virtualClient.List(ctx, &managedSeedList); err != nil {
+	if err := virtualClient.List(ctx, &managedSeedList); err != nil {
 		return err
 	}
 	managedSeedNames := sets.New[string]()
@@ -158,7 +167,7 @@ func (c *cert) deployCertUnmanagedSeeds(ctx context.Context) error {
 	}
 
 	seedList := gardencorev1beta1.SeedList{}
-	if err := c.virtualClient.List(ctx, &seedList); err != nil {
+	if err := virtualClient.List(ctx, &seedList); err != nil {
 		return err
 	}
 

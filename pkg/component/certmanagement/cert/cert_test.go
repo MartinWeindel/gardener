@@ -5,17 +5,6 @@ import (
 	"fmt"
 
 	certmanv1alpha1 "github.com/gardener/cert-management/pkg/apis/cert/v1alpha1"
-	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
-	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
-	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
-	"github.com/gardener/gardener/pkg/client/kubernetes"
-	"github.com/gardener/gardener/pkg/component"
-	. "github.com/gardener/gardener/pkg/component/certmanagement/cert"
-	"github.com/gardener/gardener/pkg/resourcemanager/controller/garbagecollector/references"
-	"github.com/gardener/gardener/pkg/utils/retry"
-	retryfake "github.com/gardener/gardener/pkg/utils/retry/fake"
-	testutils "github.com/gardener/gardener/pkg/utils/test"
-	. "github.com/gardener/gardener/pkg/utils/test/matchers"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -26,6 +15,17 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
+	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
+	"github.com/gardener/gardener/pkg/client/kubernetes"
+	. "github.com/gardener/gardener/pkg/component/certmanagement/cert"
+	"github.com/gardener/gardener/pkg/resourcemanager/controller/garbagecollector/references"
+	"github.com/gardener/gardener/pkg/utils/retry"
+	retryfake "github.com/gardener/gardener/pkg/utils/retry/fake"
+	testutils "github.com/gardener/gardener/pkg/utils/test"
+	. "github.com/gardener/gardener/pkg/utils/test/matchers"
 )
 
 var _ = Describe("Cert", func() {
@@ -47,8 +47,8 @@ var _ = Describe("Cert", func() {
 		seedCertificate *certmanv1alpha1.Certificate
 		unmanagedSeed   *gardencorev1beta1.Seed
 
-		newComponent = func(values Values) component.DeployWaiter {
-			return New(c, virtualGardenClient, values)
+		newComponent = func(values Values) Interface {
+			return New(c, values)
 		}
 		checkCertificate  func(expectSeedCertMRToExist bool)
 		createSeedObjects func()
@@ -225,6 +225,7 @@ var _ = Describe("Cert", func() {
 			createSeedObjects()
 
 			Expect(comp.Deploy(ctx)).To(Succeed())
+			Expect(comp.DeployCertUnmanagedSeeds(ctx, virtualGardenClient)).To(Succeed())
 			checkCertificate(true)
 		})
 

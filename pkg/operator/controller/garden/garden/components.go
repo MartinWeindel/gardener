@@ -43,6 +43,7 @@ import (
 	"github.com/gardener/gardener/pkg/component/autoscaling/hvpa"
 	"github.com/gardener/gardener/pkg/component/autoscaling/vpa"
 	"github.com/gardener/gardener/pkg/component/certmanagement"
+	"github.com/gardener/gardener/pkg/component/certmanagement/cert"
 	"github.com/gardener/gardener/pkg/component/etcd/etcd"
 	runtimegardensystem "github.com/gardener/gardener/pkg/component/garden/system/runtime"
 	virtualgardensystem "github.com/gardener/gardener/pkg/component/garden/system/virtual"
@@ -118,6 +119,7 @@ type components struct {
 	gardenerDiscoveryServer component.DeployWaiter
 
 	certManagement            component.DeployWaiter
+	cert                      cert.Interface
 	gardenerDashboard         gardenerdashboard.Interface
 	terminalControllerManager component.DeployWaiter
 
@@ -241,6 +243,10 @@ func (r *Reconciler) instantiateComponents(
 		return
 	}
 	c.certManagement, err = r.newCertManagement(garden)
+	if err != nil {
+		return
+	}
+	c.cert, err = r.newCert(garden)
 	if err != nil {
 		return
 	}
@@ -1060,6 +1066,15 @@ func (r *Reconciler) newCertManagement(garden *operatorv1alpha1.Garden) (compone
 		DefaultIssuer: config.DefaultIssuer,
 	}
 	return certmanagement.New(r.RuntimeClientSet.Client(), values), nil
+}
+
+func (r *Reconciler) newCert(garden *operatorv1alpha1.Garden) (cert.Interface, error) {
+	values := cert.Values{
+		Namespace: r.GardenNamespace,
+		DNS:       garden.Spec.DNS,
+		Disabled:  garden.Spec.RuntimeCluster.CertManagement == nil,
+	}
+	return cert.New(r.RuntimeClientSet.Client(), values), nil
 }
 
 func (r *Reconciler) newGardenerDashboard(garden *operatorv1alpha1.Garden, secretsManager secretsmanager.Interface, wildcardCertSecretName *string) (gardenerdashboard.Interface, error) {

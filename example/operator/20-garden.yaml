@@ -13,6 +13,19 @@ kind: Garden
 metadata:
   name: local
 spec:
+  dns:
+    primaryDomain:
+      name: garden.example.local
+      type: local
+    secondaryDomains:
+      - name: garden.alternative-example.local
+        type: local
+    internalDomain:
+      name: internal.garden.example.local
+      type: local
+    defaultDomains:
+      - name: shoot.garden.example.local
+        type: local
   runtimeCluster:
     ingress:
       domains:
@@ -44,9 +57,10 @@ spec:
   #   minimumSize: 20Gi
   # certManagement:
   #   defaultIssuer:
-  #     email: some.name@my-email-domain.com
-  #     #secretRef: defaultIssuerPrivateKey
-  #     server: https://acme-staging-v02.api.letsencrypt.org/directory
+  #     acme:
+  #       email: some.name@my-email-domain.com
+  #       server: https://acme-staging-v02.api.letsencrypt.org/directory
+  #       #secretRef: defaultIssuerPrivateKey
   virtualCluster:
   # controlPlane:
   #   highAvailability: {}

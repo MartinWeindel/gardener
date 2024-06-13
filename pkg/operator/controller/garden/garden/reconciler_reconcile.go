@@ -494,10 +494,20 @@ func (r *Reconciler) reconcile(
 			Fn:           c.plutono.Deploy,
 			Dependencies: flow.NewTaskIDs(deployGardenerResourceManager),
 		})
-		_ = g.Add(flow.Task{
+		certManagement = g.Add(flow.Task{
 			Name:         "Deploying Cert-Management",
 			Fn:           c.certManagement.Deploy,
 			Dependencies: flow.NewTaskIDs(deployGardenerResourceManager),
+		})
+		_ = g.Add(flow.Task{
+			Name: "Deploying Certificates",
+			Fn: func(ctx context.Context) error {
+				if err := c.cert.Deploy(ctx); err != nil {
+					return err
+				}
+				return c.cert.DeployCertUnmanagedSeeds(ctx, virtualClusterClient)
+			},
+			Dependencies: flow.NewTaskIDs(initializeVirtualClusterClient, certManagement),
 		})
 	)
 

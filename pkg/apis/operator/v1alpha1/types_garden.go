@@ -222,6 +222,16 @@ type CertManagementDeployment struct {
 
 // DefaultIssuer specifies an issuer to be created on the cluster.
 type DefaultIssuer struct {
+	// ACME specifies an issuer using an ACME server
+	// +optional
+	ACME *ACMEIssuer `json:"acme,omitempty"`
+	// CA specifies an issuer using an existing CA or intermediate CA secret
+	// +optional
+	CA *CAIssuer `json:"ca,omitempty"`
+}
+
+// ACMEIssuer specifies an ACME issuer to be created on the cluster.
+type ACMEIssuer struct {
 	// Email is the e-mail for the ACME user.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern=`^[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+\.[a-zA-Z0-9_\-]+$`
@@ -236,6 +246,12 @@ type DefaultIssuer struct {
 	// Format `host` or `host:port`, e.g. "8.8.8.8" same as "8.8.8.8:53" or "google-public-dns-a.google.com:53".
 	// +optional
 	PrecheckNameservers []string `json:"precheckNameservers,omitempty"`
+}
+
+// CAIssuer specifies an CA issuer to be created on the cluster.
+type CAIssuer struct {
+	// SecretRef is a reference to a TLS secret containing the existing CA or intermediate CA.
+	SecretRef *corev1.LocalObjectReference `json:"secretRef,omitempty"`
 }
 
 // VirtualCluster contains configuration for the virtual cluster.

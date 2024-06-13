@@ -83,10 +83,12 @@ var _ = Describe("CertManagement", func() {
 			Image:     image,
 			Namespace: namespace,
 			DefaultIssuer: operatorv1alpha1.DefaultIssuer{
-				Email:  "test@example.com",
-				Server: "https://acme-v02.api.letsencrypt.org/directory",
-				SecretRef: &corev1.LocalObjectReference{
-					Name: issuerSecretName,
+				ACME: &operatorv1alpha1.ACMEIssuer{
+					Email:  "test@example.com",
+					Server: "https://acme-v02.api.letsencrypt.org/directory",
+					SecretRef: &corev1.LocalObjectReference{
+						Name: issuerSecretName,
+					},
 				},
 			},
 		}

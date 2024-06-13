@@ -147,6 +147,14 @@ func validateRuntimeCluster(runtimeCluster operatorv1alpha1.RuntimeCluster, fldP
 		domains.Insert(domain)
 	}
 
+	if runtimeCluster.CertManagement != nil {
+		if runtimeCluster.CertManagement.DefaultIssuer.ACME == nil && runtimeCluster.CertManagement.DefaultIssuer.CA == nil {
+			allErrs = append(allErrs, field.Required(fldPath.Child("certManagement", "defaultIssuer"), "either ACME or CA issuer must be specified"))
+		} else if runtimeCluster.CertManagement.DefaultIssuer.ACME != nil && runtimeCluster.CertManagement.DefaultIssuer.CA != nil {
+			allErrs = append(allErrs, field.Forbidden(fldPath.Child("certManagement", "defaultIssuer"), "ACME or CA issuer are exclusive, only specify one of them"))
+		}
+	}
+
 	return allErrs
 }
 
