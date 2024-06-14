@@ -394,6 +394,9 @@ operator-seed-up: $(SKAFFOLD) $(HELM) $(KUBECTL) operator-up
 operator-seed-down: $(SKAFFOLD) $(HELM) $(KUBECTL)
 	./hack/operator-seed-down.sh --path-kind-kubeconfig $(KUBECONFIG) --path-garden-kubeconfig $(VIRTUAL_GARDEN_KUBECONFIG)
 
+operator-seed-add-cert: $(KUBECTL)
+	./hack/operator-seed-add-cert-management.sh --path-kind-kubeconfig $(KUBECONFIG)
+
 test-e2e-local: $(GINKGO)
 	./hack/test-e2e-local.sh --procs=$(PARALLEL_E2E_TESTS) --label-filter="default" ./test/e2e/gardener/...
 test-e2e-local-workerless: $(GINKGO)
