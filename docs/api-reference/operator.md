@@ -616,6 +616,72 @@ The first given domain in this list is immutable.</p>
 </tr>
 </tbody>
 </table>
+<h3 id="operator.gardener.cloud/v1alpha1.DNSDomain">DNSDomain
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#operator.gardener.cloud/v1alpha1.GardenDNS">GardenDNS</a>)
+</p>
+<p>
+<p>DNSDomain is a base domain used by the landscape.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>name</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Name is the base domain name.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>type</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<p>Type is the DNS provider type.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>secretRef</code></br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.27/#localobjectreference-v1-core">
+Kubernetes core/v1.LocalObjectReference
+</a>
+</em>
+</td>
+<td>
+<p>SecretRef contains the secret reference with the credentials for the DNS provider.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>zone</code></br>
+<em>
+string
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Zone is the hosted zone id managing the domain name.</p>
+</td>
+</tr>
+</tbody>
+</table>
 <h3 id="operator.gardener.cloud/v1alpha1.DashboardGitHub">DashboardGitHub
 </h3>
 <p>
@@ -1438,6 +1504,19 @@ GardenSpec
 <table>
 <tr>
 <td>
+<code>dns</code></br>
+<em>
+<a href="#operator.gardener.cloud/v1alpha1.GardenDNS">
+GardenDNS
+</a>
+</em>
+</td>
+<td>
+<p>GardenDNS is the DNS configuration for the garden.</p>
+</td>
+</tr>
+<tr>
+<td>
 <code>runtimeCluster</code></br>
 <em>
 <a href="#operator.gardener.cloud/v1alpha1.RuntimeCluster">
@@ -1480,6 +1559,79 @@ GardenStatus
 </tr>
 </tbody>
 </table>
+<h3 id="operator.gardener.cloud/v1alpha1.GardenDNS">GardenDNS
+</h3>
+<p>
+(<em>Appears on:</em>
+<a href="#operator.gardener.cloud/v1alpha1.GardenSpec">GardenSpec</a>)
+</p>
+<p>
+<p>GardenDNS is the DNS configuration for the garden.</p>
+</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>
+<code>primaryDomain</code></br>
+<em>
+<a href="#operator.gardener.cloud/v1alpha1.DNSDomain">
+DNSDomain
+</a>
+</em>
+</td>
+<td>
+<p>PrimaryDomain is the primary domain used by the garden. The domain name will be used for many purposes.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>secondaryDomains</code></br>
+<em>
+<a href="#operator.gardener.cloud/v1alpha1.DNSDomain">
+[]DNSDomain
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>SecondaryDomains are the domains used by the garden for CNAME records.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>internalDomain</code></br>
+<em>
+<a href="#operator.gardener.cloud/v1alpha1.DNSDomain">
+DNSDomain
+</a>
+</em>
+</td>
+<td>
+<p>InternalDomain is the domain name used for internal records for the kube-apiserver of shoot clusters.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>defaultDomains</code></br>
+<em>
+<a href="#operator.gardener.cloud/v1alpha1.DNSDomain">
+[]DNSDomain
+</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>DefaultDomains are the domains used for external records for endpoints of shoot clusters.</p>
+</td>
+</tr>
+</tbody>
+</table>
 <h3 id="operator.gardener.cloud/v1alpha1.GardenSpec">GardenSpec
 </h3>
 <p>
@@ -1497,6 +1649,19 @@ GardenStatus
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>
+<code>dns</code></br>
+<em>
+<a href="#operator.gardener.cloud/v1alpha1.GardenDNS">
+GardenDNS
+</a>
+</em>
+</td>
+<td>
+<p>GardenDNS is the DNS configuration for the garden.</p>
+</td>
+</tr>
 <tr>
 <td>
 <code>runtimeCluster</code></br>

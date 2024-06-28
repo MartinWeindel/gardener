@@ -77,6 +77,155 @@ spec:
           spec:
             description: Spec contains the specification of this garden.
             properties:
+              dns:
+                description: GardenDNS is the DNS configuration for the garden.
+                properties:
+                  defaultDomains:
+                    description: DefaultDomains are the domains used for external
+                      records for endpoints of shoot clusters.
+                    items:
+                      description: DNSDomain is a base domain used by the landscape.
+                      properties:
+                        name:
+                          description: Name is the base domain name.
+                          minLength: 1
+                          type: string
+                        secretRef:
+                          description: SecretRef contains the secret reference with
+                            the credentials for the DNS provider.
+                          properties:
+                            name:
+                              description: |-
+                                Name of the referent.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                TODO: Add other useful fields. apiVersion, kind, uid?
+                              type: string
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        type:
+                          description: Type is the DNS provider type.
+                          minLength: 1
+                          type: string
+                        zone:
+                          description: Zone is the hosted zone id managing the domain
+                            name.
+                          minLength: 1
+                          type: string
+                      required:
+                      - name
+                      - secretRef
+                      - type
+                      type: object
+                    type: array
+                  internalDomain:
+                    description: InternalDomain is the domain name used for internal
+                      records for the kube-apiserver of shoot clusters.
+                    properties:
+                      name:
+                        description: Name is the base domain name.
+                        minLength: 1
+                        type: string
+                      secretRef:
+                        description: SecretRef contains the secret reference with
+                          the credentials for the DNS provider.
+                        properties:
+                          name:
+                            description: |-
+                              Name of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      type:
+                        description: Type is the DNS provider type.
+                        minLength: 1
+                        type: string
+                      zone:
+                        description: Zone is the hosted zone id managing the domain
+                          name.
+                        minLength: 1
+                        type: string
+                    required:
+                    - name
+                    - secretRef
+                    - type
+                    type: object
+                  primaryDomain:
+                    description: PrimaryDomain is the primary domain used by the garden.
+                      The domain name will be used for many purposes.
+                    properties:
+                      name:
+                        description: Name is the base domain name.
+                        minLength: 1
+                        type: string
+                      secretRef:
+                        description: SecretRef contains the secret reference with
+                          the credentials for the DNS provider.
+                        properties:
+                          name:
+                            description: |-
+                              Name of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              TODO: Add other useful fields. apiVersion, kind, uid?
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      type:
+                        description: Type is the DNS provider type.
+                        minLength: 1
+                        type: string
+                      zone:
+                        description: Zone is the hosted zone id managing the domain
+                          name.
+                        minLength: 1
+                        type: string
+                    required:
+                    - name
+                    - secretRef
+                    - type
+                    type: object
+                  secondaryDomains:
+                    description: SecondaryDomains are the domains used by the garden
+                      for CNAME records.
+                    items:
+                      description: DNSDomain is a base domain used by the landscape.
+                      properties:
+                        name:
+                          description: Name is the base domain name.
+                          minLength: 1
+                          type: string
+                        secretRef:
+                          description: SecretRef contains the secret reference with
+                            the credentials for the DNS provider.
+                          properties:
+                            name:
+                              description: |-
+                                Name of the referent.
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                TODO: Add other useful fields. apiVersion, kind, uid?
+                              type: string
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        type:
+                          description: Type is the DNS provider type.
+                          minLength: 1
+                          type: string
+                        zone:
+                          description: Zone is the hosted zone id managing the domain
+                            name.
+                          minLength: 1
+                          type: string
+                      required:
+                      - name
+                      - secretRef
+                      - type
+                      type: object
+                    type: array
+                required:
+                - internalDomain
+                - primaryDomain
+                type: object
               runtimeCluster:
                 description: RuntimeCluster contains configuration for the runtime
                   cluster.
@@ -1610,6 +1759,7 @@ spec:
                 - networking
                 type: object
             required:
+            - dns
             - runtimeCluster
             - virtualCluster
             type: object

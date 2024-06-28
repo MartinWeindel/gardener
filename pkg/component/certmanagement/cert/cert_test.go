@@ -1,21 +1,14 @@
+// SPDX-FileCopyrightText: SAP SE or an SAP affiliate company and Gardener contributors
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package cert_test
 
 import (
 	"context"
 	"fmt"
 
-	certmanv1alpha1 "github.com/gardener/cert-management/pkg/apis/cert/v1alpha1"
-	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
-	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
-	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
-	"github.com/gardener/gardener/pkg/client/kubernetes"
-	"github.com/gardener/gardener/pkg/component"
-	. "github.com/gardener/gardener/pkg/component/certmanagement/cert"
-	"github.com/gardener/gardener/pkg/resourcemanager/controller/garbagecollector/references"
-	"github.com/gardener/gardener/pkg/utils/retry"
-	retryfake "github.com/gardener/gardener/pkg/utils/retry/fake"
-	testutils "github.com/gardener/gardener/pkg/utils/test"
-	. "github.com/gardener/gardener/pkg/utils/test/matchers"
+	certv1alpha1 "github.com/gardener/cert-management/pkg/apis/cert/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -26,6 +19,17 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
+	resourcesv1alpha1 "github.com/gardener/gardener/pkg/apis/resources/v1alpha1"
+	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
+	"github.com/gardener/gardener/pkg/client/kubernetes"
+	. "github.com/gardener/gardener/pkg/component/certmanagement/cert"
+	"github.com/gardener/gardener/pkg/resourcemanager/controller/garbagecollector/references"
+	"github.com/gardener/gardener/pkg/utils/retry"
+	retryfake "github.com/gardener/gardener/pkg/utils/retry/fake"
+	testutils "github.com/gardener/gardener/pkg/utils/test"
+	. "github.com/gardener/gardener/pkg/utils/test/matchers"
 )
 
 var _ = Describe("Cert", func() {
@@ -43,12 +47,12 @@ var _ = Describe("Cert", func() {
 
 		consistOf func(...client.Object) types.GomegaMatcher
 
-		certificate     *certmanv1alpha1.Certificate
-		seedCertificate *certmanv1alpha1.Certificate
+		certificate     *certv1alpha1.Certificate
+		seedCertificate *certv1alpha1.Certificate
 		unmanagedSeed   *gardencorev1beta1.Seed
 
-		newComponent = func(values Values) component.DeployWaiter {
-			return New(c, virtualGardenClient, values)
+		newComponent = func(values Values) Interface {
+			return New(c, values)
 		}
 		checkCertificate  func(expectSeedCertMRToExist bool)
 		createSeedObjects func()
@@ -78,13 +82,13 @@ var _ = Describe("Cert", func() {
 			dnsNameList = append(dnsNameList, dnsNamesSecondaryDomain, dnsNamesSecondaryDomainIngress)
 		}
 
-		certificate = &certmanv1alpha1.Certificate{
+		certificate = &certv1alpha1.Certificate{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      DefaultCertName,
 				Namespace: namespace,
 				Labels:    map[string]string{"app.kubernetes.io/name": "cert"},
 			},
-			Spec: certmanv1alpha1.CertificateSpec{
+			Spec: certv1alpha1.CertificateSpec{
 				DNSNames: dnsNameList,
 				SecretRef: &corev1.SecretReference{
 					Name:      DefaultCertName,
@@ -106,13 +110,13 @@ var _ = Describe("Cert", func() {
 			},
 		}
 
-		seedCertificate = &certmanv1alpha1.Certificate{
+		seedCertificate = &certv1alpha1.Certificate{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "unmanaged-seed-mysoil-ingress",
 				Namespace: namespace,
 				Labels:    map[string]string{"app.kubernetes.io/name": "cert"},
 			},
-			Spec: certmanv1alpha1.CertificateSpec{
+			Spec: certv1alpha1.CertificateSpec{
 				DNSNames: []string{"*." + unmanagedSeed.Spec.Ingress.Domain},
 				SecretRef: &corev1.SecretReference{
 					Name:      "unmanaged-seed-mysoil-ingress",
@@ -225,6 +229,7 @@ var _ = Describe("Cert", func() {
 			createSeedObjects()
 
 			Expect(comp.Deploy(ctx)).To(Succeed())
+			Expect(comp.DeployCertUnmanagedSeeds(ctx, virtualGardenClient)).To(Succeed())
 			checkCertificate(true)
 		})
 
@@ -233,7 +238,7 @@ var _ = Describe("Cert", func() {
 	Describe("Wait", func() {
 		It("should check MR is ready", func() {
 			comp := newComponent(values)
-			certificate.Status = certmanv1alpha1.CertificateStatus{State: "Ready"}
+			certificate.Status = certv1alpha1.CertificateStatus{State: "Ready"}
 			Expect(c.Create(ctx, certificate)).To(Succeed())
 
 			managedResourceCertificate.Generation = 1
@@ -259,9 +264,9 @@ var _ = Describe("Cert", func() {
 		It("should check both MRs are ready", func() {
 			comp := newComponent(values)
 
-			certificate.Status = certmanv1alpha1.CertificateStatus{State: "Ready"}
+			certificate.Status = certv1alpha1.CertificateStatus{State: "Ready"}
 			Expect(c.Create(ctx, certificate)).To(Succeed())
-			seedCertificate.Status = certmanv1alpha1.CertificateStatus{State: "Ready"}
+			seedCertificate.Status = certv1alpha1.CertificateStatus{State: "Ready"}
 			Expect(c.Create(ctx, seedCertificate)).To(Succeed())
 
 			managedResourceCertificate.Generation = 1

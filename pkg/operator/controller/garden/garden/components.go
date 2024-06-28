@@ -43,6 +43,7 @@ import (
 	"github.com/gardener/gardener/pkg/component/autoscaling/hvpa"
 	"github.com/gardener/gardener/pkg/component/autoscaling/vpa"
 	"github.com/gardener/gardener/pkg/component/certmanagement"
+	"github.com/gardener/gardener/pkg/component/certmanagement/cert"
 	"github.com/gardener/gardener/pkg/component/etcd/etcd"
 	runtimegardensystem "github.com/gardener/gardener/pkg/component/garden/system/runtime"
 	virtualgardensystem "github.com/gardener/gardener/pkg/component/garden/system/virtual"
@@ -120,6 +121,7 @@ type components struct {
 	certManagementCRD        component.Deployer
 	certManagementController component.DeployWaiter
 	certManagementIssuer     component.DeployWaiter
+	cert                     cert.Interface
 
 	gardenerDashboard         gardenerdashboard.Interface
 	terminalControllerManager component.DeployWaiter
@@ -249,6 +251,7 @@ func (r *Reconciler) instantiateComponents(
 		return
 	}
 	c.certManagementIssuer = r.newCertManagementIssuer(garden)
+	c.cert = r.newCert(garden)
 	if garden.Spec.RuntimeCluster.CertManagement == nil {
 		c.certManagementController = component.OpDestroyWithoutWait(c.certManagementController)
 		c.certManagementIssuer = component.OpDestroyWithoutWait(c.certManagementIssuer)
@@ -1076,6 +1079,15 @@ func (r *Reconciler) newCertManagementController(garden *operatorv1alpha1.Garden
 
 func (r *Reconciler) newCertManagementIssuer(garden *operatorv1alpha1.Garden) component.DeployWaiter {
 	return certmanagement.NewIssuers(r.RuntimeClientSet.Client(), r.certManagementValues(garden))
+}
+
+func (r *Reconciler) newCert(garden *operatorv1alpha1.Garden) cert.Interface {
+	values := cert.Values{
+		Namespace: r.GardenNamespace,
+		DNS:       garden.Spec.DNS,
+		Disabled:  garden.Spec.RuntimeCluster.CertManagement == nil,
+	}
+	return cert.New(r.RuntimeClientSet.Client(), values)
 }
 
 func (r *Reconciler) newGardenerDashboard(garden *operatorv1alpha1.Garden, secretsManager secretsmanager.Interface, wildcardCertSecretName *string) (gardenerdashboard.Interface, error) {

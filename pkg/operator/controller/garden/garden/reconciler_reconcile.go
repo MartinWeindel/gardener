@@ -511,6 +511,16 @@ func (r *Reconciler) reconcile(
 		Fn:           c.certManagementIssuer.Deploy,
 		Dependencies: flow.NewTaskIDs(deployGardenerResourceManager, certManagementCRDs),
 	})
+	_ = g.Add(flow.Task{
+		Name: "Deploying Certificates",
+		Fn: func(ctx context.Context) error {
+			if err := c.cert.Deploy(ctx); err != nil {
+				return err
+			}
+			return c.cert.DeployCertUnmanagedSeeds(ctx, virtualClusterClient)
+		},
+		Dependencies: flow.NewTaskIDs(initializeVirtualClusterClient, certManagementCRDs),
+	})
 
 	gardenCopy := garden.DeepCopy()
 	if err := g.Compile().Run(ctx, flow.Opts{

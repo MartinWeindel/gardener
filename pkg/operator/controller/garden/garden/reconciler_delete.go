@@ -53,6 +53,10 @@ func (r *Reconciler) delete(
 	var (
 		g = flow.NewGraph("Garden deletion")
 
+		_ = g.Add(flow.Task{
+			Name: "Cleaning Certificates",
+			Fn:   component.OpDestroyAndWait(c.cert).Destroy,
+		})
 		certManagementIssuer = g.Add(flow.Task{
 			Name: "Destroying Cert-Management default issuer",
 			Fn:   c.certManagementIssuer.Destroy,
