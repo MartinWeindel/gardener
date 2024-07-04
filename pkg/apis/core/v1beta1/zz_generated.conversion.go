@@ -5975,7 +5975,15 @@ func Convert_core_ShootAdvertisedAddress_To_v1beta1_ShootAdvertisedAddress(in *c
 }
 
 func autoConvert_v1beta1_ShootCredentials_To_core_ShootCredentials(in *ShootCredentials, out *core.ShootCredentials, s conversion.Scope) error {
-	out.Rotation = (*core.ShootCredentialsRotation)(unsafe.Pointer(in.Rotation))
+	if in.Rotation != nil {
+		in, out := &in.Rotation, &out.Rotation
+		*out = new(core.ShootCredentialsRotation)
+		if err := Convert_v1beta1_ShootCredentialsRotation_To_core_ShootCredentialsRotation(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Rotation = nil
+	}
 	return nil
 }
 
@@ -5985,7 +5993,15 @@ func Convert_v1beta1_ShootCredentials_To_core_ShootCredentials(in *ShootCredenti
 }
 
 func autoConvert_core_ShootCredentials_To_v1beta1_ShootCredentials(in *core.ShootCredentials, out *ShootCredentials, s conversion.Scope) error {
-	out.Rotation = (*ShootCredentialsRotation)(unsafe.Pointer(in.Rotation))
+	if in.Rotation != nil {
+		in, out := &in.Rotation, &out.Rotation
+		*out = new(ShootCredentialsRotation)
+		if err := Convert_core_ShootCredentialsRotation_To_v1beta1_ShootCredentialsRotation(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Rotation = nil
+	}
 	return nil
 }
 
@@ -5995,12 +6011,36 @@ func Convert_core_ShootCredentials_To_v1beta1_ShootCredentials(in *core.ShootCre
 }
 
 func autoConvert_v1beta1_ShootCredentialsRotation_To_core_ShootCredentialsRotation(in *ShootCredentialsRotation, out *core.ShootCredentialsRotation, s conversion.Scope) error {
-	out.CertificateAuthorities = (*core.CARotation)(unsafe.Pointer(in.CertificateAuthorities))
+	if in.CertificateAuthorities != nil {
+		in, out := &in.CertificateAuthorities, &out.CertificateAuthorities
+		*out = new(core.CARotation)
+		if err := Convert_v1beta1_CARotation_To_core_CARotation(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.CertificateAuthorities = nil
+	}
 	out.Kubeconfig = (*core.ShootKubeconfigRotation)(unsafe.Pointer(in.Kubeconfig))
 	out.SSHKeypair = (*core.ShootSSHKeypairRotation)(unsafe.Pointer(in.SSHKeypair))
 	out.Observability = (*core.ObservabilityRotation)(unsafe.Pointer(in.Observability))
-	out.ServiceAccountKey = (*core.ServiceAccountKeyRotation)(unsafe.Pointer(in.ServiceAccountKey))
-	out.ETCDEncryptionKey = (*core.ETCDEncryptionKeyRotation)(unsafe.Pointer(in.ETCDEncryptionKey))
+	if in.ServiceAccountKey != nil {
+		in, out := &in.ServiceAccountKey, &out.ServiceAccountKey
+		*out = new(core.ServiceAccountKeyRotation)
+		if err := Convert_v1beta1_ServiceAccountKeyRotation_To_core_ServiceAccountKeyRotation(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.ServiceAccountKey = nil
+	}
+	if in.ETCDEncryptionKey != nil {
+		in, out := &in.ETCDEncryptionKey, &out.ETCDEncryptionKey
+		*out = new(core.ETCDEncryptionKeyRotation)
+		if err := Convert_v1beta1_ETCDEncryptionKeyRotation_To_core_ETCDEncryptionKeyRotation(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.ETCDEncryptionKey = nil
+	}
 	return nil
 }
 
@@ -6010,12 +6050,36 @@ func Convert_v1beta1_ShootCredentialsRotation_To_core_ShootCredentialsRotation(i
 }
 
 func autoConvert_core_ShootCredentialsRotation_To_v1beta1_ShootCredentialsRotation(in *core.ShootCredentialsRotation, out *ShootCredentialsRotation, s conversion.Scope) error {
-	out.CertificateAuthorities = (*CARotation)(unsafe.Pointer(in.CertificateAuthorities))
+	if in.CertificateAuthorities != nil {
+		in, out := &in.CertificateAuthorities, &out.CertificateAuthorities
+		*out = new(CARotation)
+		if err := Convert_core_CARotation_To_v1beta1_CARotation(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.CertificateAuthorities = nil
+	}
 	out.Kubeconfig = (*ShootKubeconfigRotation)(unsafe.Pointer(in.Kubeconfig))
 	out.SSHKeypair = (*ShootSSHKeypairRotation)(unsafe.Pointer(in.SSHKeypair))
 	out.Observability = (*ObservabilityRotation)(unsafe.Pointer(in.Observability))
-	out.ServiceAccountKey = (*ServiceAccountKeyRotation)(unsafe.Pointer(in.ServiceAccountKey))
-	out.ETCDEncryptionKey = (*ETCDEncryptionKeyRotation)(unsafe.Pointer(in.ETCDEncryptionKey))
+	if in.ServiceAccountKey != nil {
+		in, out := &in.ServiceAccountKey, &out.ServiceAccountKey
+		*out = new(ServiceAccountKeyRotation)
+		if err := Convert_core_ServiceAccountKeyRotation_To_v1beta1_ServiceAccountKeyRotation(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.ServiceAccountKey = nil
+	}
+	if in.ETCDEncryptionKey != nil {
+		in, out := &in.ETCDEncryptionKey, &out.ETCDEncryptionKey
+		*out = new(ETCDEncryptionKeyRotation)
+		if err := Convert_core_ETCDEncryptionKeyRotation_To_v1beta1_ETCDEncryptionKeyRotation(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.ETCDEncryptionKey = nil
+	}
 	return nil
 }
 
@@ -6321,7 +6385,15 @@ func autoConvert_v1beta1_ShootStatus_To_core_ShootStatus(in *ShootStatus, out *c
 	out.ClusterIdentity = (*string)(unsafe.Pointer(in.ClusterIdentity))
 	out.AdvertisedAddresses = *(*[]core.ShootAdvertisedAddress)(unsafe.Pointer(&in.AdvertisedAddresses))
 	out.MigrationStartTime = (*metav1.Time)(unsafe.Pointer(in.MigrationStartTime))
-	out.Credentials = (*core.ShootCredentials)(unsafe.Pointer(in.Credentials))
+	if in.Credentials != nil {
+		in, out := &in.Credentials, &out.Credentials
+		*out = new(core.ShootCredentials)
+		if err := Convert_v1beta1_ShootCredentials_To_core_ShootCredentials(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Credentials = nil
+	}
 	out.LastHibernationTriggerTime = (*metav1.Time)(unsafe.Pointer(in.LastHibernationTriggerTime))
 	out.LastMaintenance = (*core.LastMaintenance)(unsafe.Pointer(in.LastMaintenance))
 	out.EncryptedResources = *(*[]string)(unsafe.Pointer(&in.EncryptedResources))
@@ -6351,7 +6423,15 @@ func autoConvert_core_ShootStatus_To_v1beta1_ShootStatus(in *core.ShootStatus, o
 	out.ClusterIdentity = (*string)(unsafe.Pointer(in.ClusterIdentity))
 	out.AdvertisedAddresses = *(*[]ShootAdvertisedAddress)(unsafe.Pointer(&in.AdvertisedAddresses))
 	out.MigrationStartTime = (*metav1.Time)(unsafe.Pointer(in.MigrationStartTime))
-	out.Credentials = (*ShootCredentials)(unsafe.Pointer(in.Credentials))
+	if in.Credentials != nil {
+		in, out := &in.Credentials, &out.Credentials
+		*out = new(ShootCredentials)
+		if err := Convert_core_ShootCredentials_To_v1beta1_ShootCredentials(*in, *out, s); err != nil {
+			return err
+		}
+	} else {
+		out.Credentials = nil
+	}
 	out.LastMaintenance = (*LastMaintenance)(unsafe.Pointer(in.LastMaintenance))
 	out.EncryptedResources = *(*[]string)(unsafe.Pointer(&in.EncryptedResources))
 	return nil
