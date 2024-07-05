@@ -2438,7 +2438,6 @@ rules:
 					Name:            fmt.Sprintf("vpn-client-%d", index),
 					Image:           "vpn-client-image:really-latest",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"/run-shoot-client.sh"},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "ENDPOINT",
@@ -2511,7 +2510,6 @@ rules:
 					},
 				}
 				if disableRewrite {
-					container.Command = nil
 					container.Env = append(container.Env,
 						corev1.EnvVar{
 							Name:  "DO_NOT_CONFIGURE_KERNEL_SETTINGS",
@@ -2526,8 +2524,7 @@ rules:
 				initContainer := haVPNClientContainerFor(0, disableRewrite)
 				initContainer.Name = "vpn-client-init"
 				initContainer.LivenessProbe = nil
-				initContainer.Args = []string{"setup"}
-				initContainer.Command = nil
+				initContainer.Command = []string{"/bin/shoot-client", "setup"}
 				initContainer.Env = append(initContainer.Env, []corev1.EnvVar{
 					{
 						Name: "POD_NAME",
@@ -2552,7 +2549,7 @@ rules:
 					ReadOnly:  true,
 				})
 				if disableRewrite {
-					initContainer.Args = nil
+					initContainer.Command = nil
 					initContainer.Env = append(initContainer.Env,
 						corev1.EnvVar{
 							Name:  "EXIT_AFTER_CONFIGURING_KERNEL_SETTINGS",
@@ -2600,7 +2597,7 @@ rules:
 					Name:            "vpn-path-controller",
 					Image:           "vpn-client-image:really-latest",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Args:            []string{"path-controller"},
+					Command:         []string{"/bin/shoot-client", "path-controller"},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "SERVICE_NETWORK",
@@ -2644,6 +2641,7 @@ rules:
 					TerminationMessagePolicy: corev1.TerminationMessageReadFile,
 				}
 				if disableRewrite {
+					pathControllerContainer.Command = nil
 					pathControllerContainer.Args = []string{"/path-controller.sh"}
 					pathControllerContainer.Env = append(pathControllerContainer.Env, corev1.EnvVar{
 						Name:  "DO_NOT_CONFIGURE_KERNEL_SETTINGS",

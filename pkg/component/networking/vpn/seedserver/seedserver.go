@@ -603,6 +603,7 @@ func (v *vpnSeedServer) podTemplate(configMap *corev1.ConfigMap, secretCAVPN, se
 				"-web.listen-address",
 				fmt.Sprintf(":%d", metricsPort),
 			}
+			exporterContainer.Env = nil
 		}
 		template.Spec.Containers = append(template.Spec.Containers, exporterContainer)
 	}
