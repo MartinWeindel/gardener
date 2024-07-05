@@ -133,10 +133,10 @@ const (
 	ImageNameVpaUpdater = "vpa-updater"
 	// ImageNameVpnSeedServer is a constant for an image in the image vector with name 'vpn-seed-server'.
 	ImageNameVpnSeedServer = "vpn-seed-server"
+	// ImageNameVpnSeedServerGo is a constant for an image in the image vector with name 'vpn-seed-server-go'.
+	ImageNameVpnSeedServerGo = "vpn-seed-server-go"
 	// ImageNameVpnShootClient is a constant for an image in the image vector with name 'vpn-shoot-client'.
 	ImageNameVpnShootClient = "vpn-shoot-client"
-	// ImageNameOldVpnSeedServer is a constant for an image in the image vector with name 'old-vpn-seed-server' (VPN before GO rewrite).
-	ImageNameOldVpnSeedServer = "old-vpn-seed-server"
-	// ImageNameOldVpnShootClient is a constant for an image in the image vector with name 'old-vpn-shoot-client' (VPN before GO rewrite).
-	ImageNameOldVpnShootClient = "old-vpn-shoot-client"
+	// ImageNameVpnShootClientGo is a constant for an image in the image vector with name 'vpn-shoot-client-go'.
+	ImageNameVpnShootClientGo = "vpn-shoot-client-go"
 )
