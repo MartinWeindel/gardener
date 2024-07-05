@@ -288,9 +288,9 @@ func computeKubeAPIServerImages(
 	result.KubeAPIServer = imageKubeAPIServer.String()
 
 	if vpnConfig.HighAvailabilityEnabled {
-		nameVpnShootClient := imagevector.ImageNameVpnShootClient
+		nameVpnShootClient := imagevector.ImageNameVpnShootClientGo
 		if vpnConfig.DisableRewrite {
-			nameVpnShootClient = imagevector.ImageNameOldVpnShootClient
+			nameVpnShootClient = imagevector.ImageNameVpnShootClient
 		}
 		imageVPNClient, err := imagevector.ImageVector().FindImage(nameVpnShootClient, imagevectorutils.RuntimeVersion(runtimeVersion.String()), imagevectorutils.TargetVersion(targetVersion.String()))
 		if err != nil {
