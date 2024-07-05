@@ -728,8 +728,7 @@ func (k *kubeAPIServer) handleVPNSettingsHA(
 func (k *kubeAPIServer) vpnSeedClientInitContainer() *corev1.Container {
 	container := k.vpnSeedClientContainer(0)
 	container.Name = "vpn-client-init"
-	container.Args = []string{"setup"}
-	container.Command = []string{"/bin/shoot-client"}
+	container.Command = []string{"/bin/shoot-client", "setup"}
 	container.Env = append(container.Env, []corev1.EnvVar{
 		{
 			Name: "POD_NAME",
@@ -749,7 +748,6 @@ func (k *kubeAPIServer) vpnSeedClientInitContainer() *corev1.Container {
 		},
 	}...)
 	if k.values.VPN.DisableRewrite {
-		container.Args = nil
 		container.Command = nil
 		container.Env = append(container.Env,
 			corev1.EnvVar{
@@ -861,8 +859,7 @@ func (k *kubeAPIServer) vpnSeedPathControllerContainer() *corev1.Container {
 		Name:            containerNameVPNPathController,
 		Image:           k.values.Images.VPNClient,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		Command:         []string{"/bin/shoot-client"},
-		Args:            []string{"path-controller"},
+		Command:         []string{"/bin/shoot-client", "path-controller"},
 		Env: []corev1.EnvVar{
 			{
 				Name:  "SERVICE_NETWORK",

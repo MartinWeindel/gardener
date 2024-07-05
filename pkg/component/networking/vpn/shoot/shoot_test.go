@@ -469,7 +469,11 @@ var _ = Describe("VPNShoot", func() {
 
 				if vpaEnabled {
 					limits = corev1.ResourceList{
-						corev1.ResourceMemory: resource.MustParse("100Mi"),
+						corev1.ResourceMemory: resource.MustParse("40Mi"),
+					}
+				} else {
+					limits = corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("60Mi"),
 					}
 				}
 
@@ -500,7 +504,6 @@ var _ = Describe("VPNShoot", func() {
 				}
 				container := &corev1.Container{
 					Name:            name,
-					Command:         []string{"/run-shoot-client.sh"},
 					Image:           image,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Env:             env,
@@ -512,15 +515,14 @@ var _ = Describe("VPNShoot", func() {
 					},
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("100m"),
-							corev1.ResourceMemory: resource.MustParse("100Mi"),
+							corev1.ResourceCPU:    resource.MustParse("10m"),
+							corev1.ResourceMemory: resource.MustParse("10Mi"),
 						},
 						Limits: limits,
 					},
 					VolumeMounts: volumeMounts,
 				}
 				if disableRewrite {
-					container.Command = nil
 					container.Env = append(container.Env,
 						corev1.EnvVar{
 							Name:  "DO_NOT_CONFIGURE_KERNEL_SETTINGS",
@@ -599,7 +601,7 @@ var _ = Describe("VPNShoot", func() {
 						Name:            "vpn-shoot-init",
 						Image:           image,
 						ImagePullPolicy: corev1.PullIfNotPresent,
-						Args:            []string{"setup"},
+						Command:         []string{"/bin/shoot-client", "setup"},
 						Env: []corev1.EnvVar{
 							{
 								Name:  "IS_SHOOT_CLIENT",
@@ -699,7 +701,7 @@ var _ = Describe("VPNShoot", func() {
 					}...)
 				}
 				if disableRewrite {
-					initContainer.Args = nil
+					initContainer.Command = nil
 					initContainer.Env = append(initContainer.Env,
 						corev1.EnvVar{
 							Name:  "EXIT_AFTER_CONFIGURING_KERNEL_SETTINGS",
@@ -864,7 +866,6 @@ var _ = Describe("VPNShoot", func() {
 					secretNameCA      = expectCASecret(manifests)
 					secretNameTLSAuth = expectTLSAuthSecret(manifests)
 				)
-
 				Expect(managedResource).To(contain(deploymentFor(secretNameCA, secretNameClient, secretNameTLSAuth)))
 			})
 		})
@@ -985,10 +986,10 @@ var _ = Describe("VPNShoot", func() {
 						secretNameTLSAuth = expectTLSAuthSecret(manifests)
 					)
 
-					statefulSet := &appsv1.StatefulSet{}
-					Expect(runtime.DecodeInto(newCodec(), managedResourceSecret.Data["statefulset__kube-system__vpn-shoot.yaml"], statefulSet)).To(Succeed())
-					expected := statefulSetFor(3, 2, []string{secretNameClient0, secretNameClient1}, secretNameCA, secretNameTLSAuth)
-					Expect(statefulSet).To(DeepEqual(expected))
+					Expect(managedResource).To(contain(
+						vpaHA,
+						statefulSetFor(3, 2, []string{secretNameClient0, secretNameClient1}, secretNameCA, secretNameTLSAuth),
+					))
 				})
 
 				It("should successfully deploy all resources", func() {
