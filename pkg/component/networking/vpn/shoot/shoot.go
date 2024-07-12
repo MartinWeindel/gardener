@@ -88,6 +88,8 @@ type Values struct {
 	VPAEnabled bool
 	// ReversedVPN contains the configuration values for the ReversedVPN.
 	ReversedVPN ReversedVPNValues
+	// SeedPodNetwork is the pod CIDR of the seed
+	SeedPodNetwork string
 	// HighAvailabilityEnabled marks whether HA is enabled for VPN.
 	HighAvailabilityEnabled bool
 	// HighAvailabilityNumberOfSeedServers is the number of VPN seed servers used for HA
@@ -703,6 +705,10 @@ func (v *vpnShoot) getEnvVars(index *int) []corev1.EnvVar {
 		corev1.EnvVar{
 			Name:  "IS_SHOOT_CLIENT",
 			Value: "true",
+		},
+		corev1.EnvVar{
+			Name:  "SEED_POD_NETWORK",
+			Value: v.values.SeedPodNetwork,
 		},
 	)
 

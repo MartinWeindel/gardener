@@ -78,6 +78,7 @@ var _ = Describe("VPNShoot", func() {
 				IPFamilies:  []gardencorev1beta1.IPFamily{gardencorev1beta1.IPFamilyIPv4},
 			},
 			KubernetesVersion: semver.MustParse("1.25.0"),
+			SeedPodNetwork:    "10.1.0.0/16",
 		}
 
 		scrapeConfig = &monitoringv1alpha1.ScrapeConfig{
@@ -457,6 +458,10 @@ var _ = Describe("VPNShoot", func() {
 					corev1.EnvVar{
 						Name:  "IS_SHOOT_CLIENT",
 						Value: "true",
+					},
+					corev1.EnvVar{
+						Name:  "SEED_POD_NETWORK",
+						Value: "10.1.0.0/16",
 					},
 				)
 
