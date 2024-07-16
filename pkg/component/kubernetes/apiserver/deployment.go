@@ -881,6 +881,10 @@ func (k *kubeAPIServer) vpnSeedPathControllerContainer() *corev1.Container {
 				Name:  "HA_VPN_CLIENTS",
 				Value: strconv.Itoa(k.values.VPN.HighAvailabilityNumberOfShootClients),
 			},
+			{
+				Name:      "POD_IP",
+				ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"}},
+			},
 		},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{

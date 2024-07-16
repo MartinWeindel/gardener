@@ -369,6 +369,13 @@ var _ = Describe("VPNShoot", func() {
 									corev1.ResourceMemory: resource.MustParse("10Mi"),
 								},
 							},
+							{
+								ContainerName:    "tunnel-controller",
+								ControlledValues: ptr.To(vpaautoscalingv1.ContainerControlledValuesRequestsOnly),
+								MinAllowed: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse("10Mi"),
+								},
+							},
 						},
 					},
 				},
@@ -687,6 +694,27 @@ var _ = Describe("VPNShoot", func() {
 					for i := 0; i < servers; i++ {
 						obj.Spec.Containers = append(obj.Spec.Containers, *containerFor(len(secretNameClients), &i, vpaEnabled, disableRewrite, highAvailable))
 					}
+					obj.Spec.Containers = append(obj.Spec.Containers, corev1.Container{
+						Name:    "tunnel-controller",
+						Image:   image,
+						Command: []string{"/bin/tunnelcontroller"},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged: ptr.To(false),
+							Capabilities: &corev1.Capabilities{
+								Add: []corev1.Capability{"NET_ADMIN"},
+							},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10m"),
+								corev1.ResourceMemory: resource.MustParse("10Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceMemory: resource.MustParse("20Mi"),
+							},
+						},
+						ImagePullPolicy: corev1.PullIfNotPresent,
+					})
 				}
 
 				if highAvailable {

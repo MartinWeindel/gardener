@@ -475,6 +475,7 @@ func (v *vpnShoot) computeResourcesData(secretCAVPN *corev1.Secret, secretsVPNSh
 			for i := 0; i < v.values.HighAvailabilityNumberOfSeedServers; i++ {
 				containerNames = append(containerNames, fmt.Sprintf("%s-s%d", containerName, i))
 			}
+			containerNames = append(containerNames, "tunnel-controller")
 		}
 		var containerPolicies []vpaautoscalingv1.ContainerResourcePolicy
 		for _, name := range containerNames {
@@ -580,6 +581,7 @@ func (v *vpnShoot) podTemplate(serviceAccount *corev1.ServiceAccount, secrets []
 		for i := 0; i < v.values.HighAvailabilityNumberOfSeedServers; i++ {
 			template.Spec.Containers = append(template.Spec.Containers, *v.container(secrets, &i))
 		}
+		template.Spec.Containers = append(template.Spec.Containers, *v.tunnelControllerContainer())
 	}
 
 	return template
@@ -609,6 +611,30 @@ func (v *vpnShoot) container(secrets []vpnSecret, index *int) *corev1.Container 
 			Limits: v.getResourceLimits(),
 		},
 		VolumeMounts: v.getVolumeMounts(secrets),
+	}
+}
+
+func (v *vpnShoot) tunnelControllerContainer() *corev1.Container {
+	return &corev1.Container{
+		Name:            "tunnel-controller",
+		Image:           v.values.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"/bin/tunnelcontroller"},
+		SecurityContext: &corev1.SecurityContext{
+			Privileged: ptr.To(false),
+			Capabilities: &corev1.Capabilities{
+				Add: []corev1.Capability{"NET_ADMIN"},
+			},
+		},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10m"),
+				corev1.ResourceMemory: resource.MustParse("10Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("20Mi"),
+			},
+		},
 	}
 }
 
