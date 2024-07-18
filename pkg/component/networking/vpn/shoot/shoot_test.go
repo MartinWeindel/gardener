@@ -616,6 +616,10 @@ var _ = Describe("VPNShoot", func() {
 						Command:         []string{"/bin/shoot-client", "setup"},
 						Env: []corev1.EnvVar{
 							{
+								Name:  "IP_FAMILIES",
+								Value: string(values.ReversedVPN.IPFamilies[0]),
+							},
+							{
 								Name:  "IS_SHOOT_CLIENT",
 								Value: "true",
 							},

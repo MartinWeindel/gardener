@@ -2471,6 +2471,10 @@ rules:
 							Name:  "OPENVPN_PORT",
 							Value: "1194",
 						},
+						{
+							Name:  "IP_FAMILIES",
+							Value: "IPv4",
+						},
 					},
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
@@ -2574,6 +2578,7 @@ rules:
 						HighAvailabilityNumberOfShootClients: 3,
 						PodNetworkCIDR:                       "1.2.3.0/24",
 						NodeNetworkCIDR:                      ptr.To("7.8.9.0/24"),
+						IPFamilies:                           []gardencorev1beta1.IPFamily{gardencorev1beta1.IPFamilyIPv4},
 						DisableRewrite:                       disableRewrite,
 					},
 					Version: version,

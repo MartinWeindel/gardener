@@ -169,6 +169,8 @@ type VPNConfig struct {
 	// DisableRewrite disable VPN go-rewrite
 	// TODO (MartinWeindel) remove after Oct 2024
 	DisableRewrite bool
+	// IPFamilies are the IPFamilies of the shoot.
+	IPFamilies []gardencorev1beta1.IPFamily
 }
 
 // ServerCertificateConfig contains configuration for the server certificate.

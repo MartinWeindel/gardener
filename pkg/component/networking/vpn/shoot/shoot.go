@@ -869,12 +869,20 @@ func (v *vpnShoot) getVolumes(secret []vpnSecret, secretCA, secretTLSAuth *corev
 }
 
 func (v *vpnShoot) getInitContainers() []corev1.Container {
+	var ipFamilies []string
+	for _, v := range v.values.ReversedVPN.IPFamilies {
+		ipFamilies = append(ipFamilies, string(v))
+	}
 	container := corev1.Container{
 		Name:            initContainerName,
 		Image:           v.values.Image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{"/bin/shoot-client", "setup"},
 		Env: []corev1.EnvVar{
+			{
+				Name:  "IP_FAMILIES",
+				Value: strings.Join(ipFamilies, ","),
+			},
 			{
 				Name:  "IS_SHOOT_CLIENT",
 				Value: "true",

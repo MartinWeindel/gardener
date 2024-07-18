@@ -55,6 +55,7 @@ func (b *Botanist) DefaultKubeAPIServer(ctx context.Context) (kubeapiserver.Inte
 		vpnConfig.HighAvailabilityEnabled = b.Shoot.VPNHighAvailabilityEnabled
 		vpnConfig.HighAvailabilityNumberOfSeedServers = b.Shoot.VPNHighAvailabilityNumberOfSeedServers
 		vpnConfig.HighAvailabilityNumberOfShootClients = b.Shoot.VPNHighAvailabilityNumberOfShootClients
+		vpnConfig.IPFamilies = b.Shoot.GetInfo().Spec.Networking.IPFamilies
 		vpnConfig.DisableRewrite = b.Shoot.VPNDisableRewrite
 	}
 

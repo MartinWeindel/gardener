@@ -844,6 +844,12 @@ func (k *kubeAPIServer) vpnSeedClientContainer(index int) *corev1.Container {
 			},
 		},
 	}
+	if len(k.values.VPN.IPFamilies) > 0 {
+		container.Env = append(container.Env, corev1.EnvVar{
+			Name:  "IP_FAMILIES",
+			Value: string(k.values.VPN.IPFamilies[0]),
+		})
+	}
 	if k.values.VPN.DisableRewrite {
 		container.Command = nil
 		container.Env = append(container.Env, corev1.EnvVar{
