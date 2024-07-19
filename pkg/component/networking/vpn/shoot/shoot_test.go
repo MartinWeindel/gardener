@@ -601,7 +601,7 @@ var _ = Describe("VPNShoot", func() {
 						Name:            "vpn-shoot-init",
 						Image:           image,
 						ImagePullPolicy: corev1.PullIfNotPresent,
-						Command:         []string{"/bin/shoot-client", "setup"},
+						Command:         []string{"/bin/vpn-client", "setup"},
 						Env: []corev1.EnvVar{
 							{
 								Name:  "IS_SHOOT_CLIENT",

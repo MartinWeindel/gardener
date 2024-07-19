@@ -2524,7 +2524,7 @@ rules:
 				initContainer := haVPNClientContainerFor(0, disableRewrite)
 				initContainer.Name = "vpn-client-init"
 				initContainer.LivenessProbe = nil
-				initContainer.Command = []string{"/bin/shoot-client", "setup"}
+				initContainer.Command = []string{"/bin/vpn-client", "setup"}
 				initContainer.Env = append(initContainer.Env, []corev1.EnvVar{
 					{
 						Name: "POD_NAME",
@@ -2597,7 +2597,7 @@ rules:
 					Name:            "vpn-path-controller",
 					Image:           "vpn-client-image:really-latest",
 					ImagePullPolicy: corev1.PullIfNotPresent,
-					Command:         []string{"/bin/shoot-client", "path-controller"},
+					Command:         []string{"/bin/vpn-client", "path-controller"},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "SERVICE_NETWORK",

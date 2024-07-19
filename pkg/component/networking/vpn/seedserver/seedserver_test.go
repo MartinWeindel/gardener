@@ -278,7 +278,7 @@ var _ = Describe("VpnSeedServer", func() {
 					Image:           vpnImage,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command: []string{
-						"/bin/seed-server",
+						"/bin/vpn-server",
 						"exporter",
 					},
 					Env: []corev1.EnvVar{
