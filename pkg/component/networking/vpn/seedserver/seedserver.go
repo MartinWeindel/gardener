@@ -533,7 +533,7 @@ func (v *vpnSeedServer) podTemplate(configMap *corev1.ConfigMap, secretCAVPN, se
 			Image:           v.values.ImageVPNSeedServer,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command: []string{
-				"/bin/seed-server",
+				"/bin/vpn-server",
 				"exporter",
 			},
 			Env: []corev1.EnvVar{

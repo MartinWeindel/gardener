@@ -877,7 +877,7 @@ func (v *vpnShoot) getInitContainers() []corev1.Container {
 		Name:            initContainerName,
 		Image:           v.values.Image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		Command:         []string{"/bin/shoot-client", "setup"},
+		Command:         []string{"/bin/vpn-client", "setup"},
 		Env: []corev1.EnvVar{
 			{
 				Name:  "IP_FAMILIES",
