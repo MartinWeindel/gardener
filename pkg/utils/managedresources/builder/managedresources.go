@@ -146,22 +146,22 @@ func (m *ManagedResource) Reconcile(ctx context.Context) error {
 		return err
 	}
 
+	// Update the managed resource if necessary
+	existing := resource.DeepCopyObject()
+	mutateFn(resource)
+	if equality.Semantic.DeepEqual(existing, resource) {
+		return nil
+	}
+
 	// Always mark all old secrets as garbage collectable.
 	// This is done in order to guarantee backwards compatibility with previous versions of this library
 	// when the underlying mananaged resource secrets were not immutable and not garbage collectable.
 	// This guarantees that "old" secrets are always taken care of.
 	// If an old secret is already deleted then we do not care about it and continue the flow.
 	// For more details, please see https://github.com/gardener/gardener/pull/8116
-	oldSecrets := secretsFromRefs(resource)
+	oldSecrets := secretsFromRefs(existing.(*resourcesv1alpha1.ManagedResource))
 	if err := markSecretsAsGarbageCollectable(ctx, m.client, oldSecrets); err != nil {
 		return fmt.Errorf("marking old secrets as garbage collectable: %w", err)
-	}
-
-	// Update the managed resource if necessary
-	existing := resource.DeepCopyObject()
-	mutateFn(resource)
-	if equality.Semantic.DeepEqual(existing, resource) {
-		return nil
 	}
 
 	return m.client.Update(ctx, resource)
