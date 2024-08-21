@@ -50,10 +50,6 @@ require (
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948
 	golang.org/x/text v0.17.0
 	golang.org/x/time v0.6.0
-	golang.org/x/tools v0.24.0
-	gomodules.xyz/jsonpatch/v2 v2.4.0
-	gonum.org/v1/gonum v0.15.0
-	google.golang.org/protobuf v1.34.2
 	gopkg.in/yaml.v3 v3.0.1
 	helm.sh/helm/v3 v3.14.4
 	istio.io/api v1.22.4
@@ -83,7 +79,8 @@ require (
 require (
 	dario.cat/mergo v1.0.1 // indirect
 	k8s.io/code-generator v0.31.0
-	k8s.io/kubernetes v1.30.3
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20231015215740-bf15e44028f9
+	sigs.k8s.io/controller-tools v0.16.1
 )
 
 require (
@@ -128,7 +125,7 @@ require (
 	github.com/docker/go-metrics v0.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.0 // indirect
-	github.com/fatih/color v1.16.0 // indirect
+	github.com/fatih/color v1.17.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
