@@ -84,7 +84,6 @@ require (
 require (
 	dario.cat/mergo v1.0.1 // indirect
 	k8s.io/code-generator v0.31.0
-	k8s.io/kubernetes v1.30.3
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20231015215740-bf15e44028f9
 	sigs.k8s.io/controller-tools v0.16.1
 )
