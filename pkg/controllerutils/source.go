@@ -28,6 +28,7 @@ type HandleOnce[object client.Object, request comparable] struct {
 	Handler handler.TypedEventHandler[object, request]
 }
 
+// Start is internal and should be called only by the Controller to start the source.
 func (h *HandleOnce[object, request]) Start(ctx context.Context, q workqueue.TypedRateLimitingInterface[request]) error {
 	h.Handler.Create(ctx, event.TypedCreateEvent[object]{}, q)
 	return nil
