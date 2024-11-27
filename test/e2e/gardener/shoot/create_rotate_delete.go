@@ -27,16 +27,22 @@ import (
 )
 
 var _ = Describe("Shoot Tests", Label("Shoot", "default"), func() {
-	test := func(shoot *gardencorev1beta1.Shoot) {
+	test := func(shoot *gardencorev1beta1.Shoot, useStorageVersionMigration bool) {
 		f := defaultShootCreationFramework()
 		f.Shoot = shoot
 
-		// Setting the kubernetes versions to < 1.27 as enableStaticTokenKubeconfig cannot be enabled
-		// for Shoot clusters with k8s version >= 1.27.
-		f.Shoot.Spec.Kubernetes.Version = "1.26.0"
+		hasStaticTokenKubeconfig := false
+		if useStorageVersionMigration {
+			enableStorageVersionMigratorFeatureGate(f.Shoot)
+		} else {
+			// Setting the kubernetes versions to < 1.27 as enableStaticTokenKubeconfig cannot be enabled
+			// for Shoot clusters with k8s version >= 1.27.
+			f.Shoot.Spec.Kubernetes.Version = "1.26.0"
 
-		// Explicitly enable the static token kubeconfig to test the kubeconfig rotation.
-		f.Shoot.Spec.Kubernetes.EnableStaticTokenKubeconfig = ptr.To(true)
+			// Explicitly enable the static token kubeconfig to test the kubeconfig rotation.
+			f.Shoot.Spec.Kubernetes.EnableStaticTokenKubeconfig = ptr.To(true)
+			hasStaticTokenKubeconfig = true
+		}
 
 		It("Create Shoot, Rotate Credentials and Delete Shoot", Offset(1), Label("credentials-rotation"), func() {
 			ctx, cancel := context.WithTimeout(parentCtx, 20*time.Minute)
@@ -48,8 +54,7 @@ var _ = Describe("Shoot Tests", Label("Shoot", "default"), func() {
 
 			v := rotationutils.Verifiers{
 				// basic verifiers checking secrets
-				&rotation.CAVerifier{ShootCreationFramework: f},
-				&rotation.KubeconfigVerifier{ShootCreationFramework: f},
+				&rotation.CAVerifier{ShootCreationFramework: f, CheckStaticKubeconfig: hasStaticTokenKubeconfig},
 				&rotationutils.ObservabilityVerifier{
 					GetObservabilitySecretFunc: func(ctx context.Context) (*corev1.Secret, error) {
 						secret := &corev1.Secret{}
@@ -98,7 +103,11 @@ var _ = Describe("Shoot Tests", Label("Shoot", "default"), func() {
 						},
 					},
 				},
-				&rotation.ShootAccessVerifier{ShootCreationFramework: f},
+				&rotation.ShootAccessVerifier{ShootCreationFramework: f, CheckStaticKubeconfig: hasStaticTokenKubeconfig},
+			}
+
+			if hasStaticTokenKubeconfig {
+				v = append(v, &rotation.KubeconfigVerifier{ShootCreationFramework: f})
 			}
 
 			if !v1beta1helper.IsWorkerless(f.Shoot) {
@@ -168,12 +177,36 @@ var _ = Describe("Shoot Tests", Label("Shoot", "default"), func() {
 			Expect(f.DeleteShootAndWaitForDeletion(ctx, f.Shoot)).To(Succeed())
 		})
 	}
-
 	Context("Shoot with workers", Label("basic"), func() {
-		test(e2e.DefaultShoot("e2e-rotate"))
+		test(e2e.DefaultShoot("e2e-rotate"), true)
 	})
-
 	Context("Workerless Shoot", Label("workerless"), func() {
-		test(e2e.DefaultWorkerlessShoot("e2e-rotate"))
+		test(e2e.DefaultWorkerlessShoot("e2e-rotate"), false)
 	})
 })
+
+func enableStorageVersionMigratorFeatureGate(shoot *gardencorev1beta1.Shoot) {
+	// Setting the kubernetes versions to >= 1.30 as StorageVersionMigration is only available
+	// for Shoot clusters with k8s version >= 1.30
+	shoot.Spec.Kubernetes.Version = "1.31.1"
+	if shoot.Spec.Kubernetes.KubeAPIServer == nil {
+		shoot.Spec.Kubernetes.KubeAPIServer = &gardencorev1beta1.KubeAPIServerConfig{}
+	}
+	if shoot.Spec.Kubernetes.KubeAPIServer.KubernetesConfig.FeatureGates == nil {
+		shoot.Spec.Kubernetes.KubeAPIServer.KubernetesConfig.FeatureGates = map[string]bool{}
+	}
+	shoot.Spec.Kubernetes.KubeAPIServer.KubernetesConfig.FeatureGates["StorageVersionMigrator"] = true
+	shoot.Spec.Kubernetes.KubeAPIServer.KubernetesConfig.FeatureGates["InformerResourceVersion"] = true
+	if shoot.Spec.Kubernetes.KubeAPIServer.RuntimeConfig == nil {
+		shoot.Spec.Kubernetes.KubeAPIServer.RuntimeConfig = map[string]bool{}
+	}
+	shoot.Spec.Kubernetes.KubeAPIServer.RuntimeConfig["storagemigration.k8s.io/v1alpha1"] = true
+	if shoot.Spec.Kubernetes.KubeControllerManager == nil {
+		shoot.Spec.Kubernetes.KubeControllerManager = &gardencorev1beta1.KubeControllerManagerConfig{}
+	}
+	if shoot.Spec.Kubernetes.KubeControllerManager.KubernetesConfig.FeatureGates == nil {
+		shoot.Spec.Kubernetes.KubeControllerManager.KubernetesConfig.FeatureGates = map[string]bool{}
+	}
+	shoot.Spec.Kubernetes.KubeControllerManager.KubernetesConfig.FeatureGates["StorageVersionMigrator"] = true
+	shoot.Spec.Kubernetes.KubeControllerManager.KubernetesConfig.FeatureGates["InformerResourceVersion"] = true
+}

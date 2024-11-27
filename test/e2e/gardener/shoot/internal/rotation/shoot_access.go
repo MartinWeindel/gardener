@@ -24,20 +24,24 @@ type clients struct {
 type ShootAccessVerifier struct {
 	*framework.ShootCreationFramework
 
+	CheckStaticKubeconfig bool
+
 	clientsBefore, clientsPrepared, clientsAfter clients
 }
 
 // Before is called before the rotation is started.
 func (v *ShootAccessVerifier) Before(ctx context.Context) {
-	By("Use old static token kubeconfig with old CA to access shoot")
-	Eventually(func(g Gomega) {
-		shootClient, err := access.CreateShootClientFromStaticTokenKubeconfig(ctx, v.GardenClient, v.Shoot)
-		g.Expect(err).NotTo(HaveOccurred())
+	if v.CheckStaticKubeconfig {
+		By("Use old static token kubeconfig with old CA to access shoot")
+		Eventually(func(g Gomega) {
+			shootClient, err := access.CreateShootClientFromStaticTokenKubeconfig(ctx, v.GardenClient, v.Shoot)
+			g.Expect(err).NotTo(HaveOccurred())
 
-		g.Expect(shootClient.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
+			g.Expect(shootClient.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
 
-		v.clientsBefore.staticToken = shootClient
-	}).Should(Succeed())
+			v.clientsBefore.staticToken = shootClient
+		}).Should(Succeed())
+	}
 
 	By("Use admin kubeconfig with old CA to access shoot")
 	Eventually(func(g Gomega) {
@@ -85,10 +89,12 @@ func (v *ShootAccessVerifier) ExpectPreparingStatus(_ Gomega) {}
 
 // AfterPrepared is called when the Shoot is in Prepared status.
 func (v *ShootAccessVerifier) AfterPrepared(ctx context.Context) {
-	By("Use old static token kubeconfig with old CA to access shoot")
-	Consistently(func(g Gomega) {
-		g.Expect(v.clientsBefore.staticToken.Client().List(ctx, &corev1.NamespaceList{})).NotTo(Succeed())
-	}).Should(Succeed())
+	if v.CheckStaticKubeconfig {
+		By("Use old static token kubeconfig with old CA to access shoot")
+		Consistently(func(g Gomega) {
+			g.Expect(v.clientsBefore.staticToken.Client().List(ctx, &corev1.NamespaceList{})).NotTo(Succeed())
+		}).Should(Succeed())
+	}
 
 	By("Use admin kubeconfig with old CA to access shoot")
 	Eventually(func(g Gomega) {
@@ -110,15 +116,17 @@ func (v *ShootAccessVerifier) AfterPrepared(ctx context.Context) {
 		g.Expect(v.clientsBefore.serviceAccountStatic.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
 	}).Should(Succeed())
 
-	By("Use rotated static token kubeconfig with CA bundle to access shoot")
-	Eventually(func(g Gomega) {
-		shootClient, err := access.CreateShootClientFromStaticTokenKubeconfig(ctx, v.GardenClient, v.Shoot)
-		g.Expect(err).NotTo(HaveOccurred())
+	if v.CheckStaticKubeconfig {
+		By("Use rotated static token kubeconfig with CA bundle to access shoot")
+		Eventually(func(g Gomega) {
+			shootClient, err := access.CreateShootClientFromStaticTokenKubeconfig(ctx, v.GardenClient, v.Shoot)
+			g.Expect(err).NotTo(HaveOccurred())
 
-		g.Expect(shootClient.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
+			g.Expect(shootClient.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
 
-		v.clientsPrepared.staticToken = shootClient
-	}).Should(Succeed())
+			v.clientsPrepared.staticToken = shootClient
+		}).Should(Succeed())
+	}
 
 	By("Use admin kubeconfig with CA bundle to access shoot")
 	Eventually(func(g Gomega) {
@@ -166,10 +174,12 @@ func (v *ShootAccessVerifier) ExpectCompletingStatus(_ Gomega) {}
 
 // AfterCompleted is called when the Shoot is in Completed status.
 func (v *ShootAccessVerifier) AfterCompleted(ctx context.Context) {
-	By("Use old static token kubeconfig with old CA to access shoot")
-	Consistently(func(g Gomega) {
-		g.Expect(v.clientsBefore.staticToken.Client().List(ctx, &corev1.NamespaceList{})).NotTo(Succeed())
-	}).Should(Succeed())
+	if v.CheckStaticKubeconfig {
+		By("Use old static token kubeconfig with old CA to access shoot")
+		Consistently(func(g Gomega) {
+			g.Expect(v.clientsBefore.staticToken.Client().List(ctx, &corev1.NamespaceList{})).NotTo(Succeed())
+		}).Should(Succeed())
+	}
 
 	By("Use admin kubeconfig with old CA to access shoot")
 	Consistently(func(g Gomega) {
@@ -191,10 +201,12 @@ func (v *ShootAccessVerifier) AfterCompleted(ctx context.Context) {
 		g.Expect(v.clientsBefore.serviceAccountStatic.Client().List(ctx, &corev1.NamespaceList{})).NotTo(Succeed())
 	}).Should(Succeed())
 
-	By("Use rotated static token kubeconfig with CA bundle to access shoot")
-	Eventually(func(g Gomega) {
-		g.Expect(v.clientsPrepared.staticToken.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
-	}).Should(Succeed())
+	if v.CheckStaticKubeconfig {
+		By("Use rotated static token kubeconfig with CA bundle to access shoot")
+		Eventually(func(g Gomega) {
+			g.Expect(v.clientsPrepared.staticToken.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
+		}).Should(Succeed())
+	}
 
 	By("Use admin kubeconfig with CA bundle to access shoot")
 	Eventually(func(g Gomega) {
@@ -216,15 +228,17 @@ func (v *ShootAccessVerifier) AfterCompleted(ctx context.Context) {
 		g.Expect(v.clientsPrepared.serviceAccountStatic.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
 	}).Should(Succeed())
 
-	By("Use rotated static token kubeconfig with new CA to access shoot")
-	Eventually(func(g Gomega) {
-		shootClient, err := access.CreateShootClientFromStaticTokenKubeconfig(ctx, v.GardenClient, v.Shoot)
-		g.Expect(err).NotTo(HaveOccurred())
+	if v.CheckStaticKubeconfig {
+		By("Use rotated static token kubeconfig with new CA to access shoot")
+		Eventually(func(g Gomega) {
+			shootClient, err := access.CreateShootClientFromStaticTokenKubeconfig(ctx, v.GardenClient, v.Shoot)
+			g.Expect(err).NotTo(HaveOccurred())
 
-		g.Expect(shootClient.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
+			g.Expect(shootClient.Client().List(ctx, &corev1.NamespaceList{})).To(Succeed())
 
-		v.clientsAfter.staticToken = shootClient
-	}).Should(Succeed())
+			v.clientsAfter.staticToken = shootClient
+		}).Should(Succeed())
+	}
 
 	By("Use admin kubeconfig with new CA to access shoot")
 	Eventually(func(g Gomega) {

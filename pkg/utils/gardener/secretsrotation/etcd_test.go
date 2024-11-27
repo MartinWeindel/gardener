@@ -304,6 +304,20 @@ var _ = Describe("ETCD", func() {
 				Expect(kubeAPIServerDeployment.Annotations).NotTo(HaveKey("credentials.gardener.cloud/resources-labeled"))
 			})
 		})
+
+		Describe("#RemoveLabel", func() {
+			It("should patch all resources and remove the label if not already done", func() {
+				metav1.SetMetaDataAnnotation(&kubeAPIServerDeployment.ObjectMeta, "credentials.gardener.cloud/etcd-snapshotted", "true")
+				metav1.SetMetaDataAnnotation(&kubeAPIServerDeployment.ObjectMeta, "credentials.gardener.cloud/storage-version-migrated", "true")
+				Expect(runtimeClient.Update(ctx, kubeAPIServerDeployment)).To(Succeed())
+
+				Expect(RemoveLabel(ctx, runtimeClient, kubeAPIServerNamespace, kubeAPIServerDeploymentName)).To(Succeed())
+
+				Expect(runtimeClient.Get(ctx, client.ObjectKeyFromObject(kubeAPIServerDeployment), kubeAPIServerDeployment)).To(Succeed())
+				Expect(kubeAPIServerDeployment.Annotations).NotTo(HaveKey("credentials.gardener.cloud/etcd-snapshotted"))
+				Expect(kubeAPIServerDeployment.Annotations).NotTo(HaveKey("credentials.gardener.cloud/storage-version-migrated"))
+			})
+		})
 	})
 
 	Describe("GetResourcesForRewrite", func() {

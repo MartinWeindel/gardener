@@ -25,6 +25,8 @@ import (
 type CAVerifier struct {
 	*framework.ShootCreationFramework
 
+	CheckStaticKubeconfig bool
+
 	oldCACert []byte
 	caBundle  []byte
 	newCACert []byte
@@ -87,7 +89,7 @@ func (v *CAVerifier) Before(ctx context.Context) {
 		), "ca-cluster config map in garden should contain the same bundle as ca-bundle secret on seed")
 		v.oldCACert = []byte(configMap.Data["ca.crt"])
 
-		verifyCABundleInKubeconfigSecret(ctx, g, v.GardenClient.Client(), client.ObjectKeyFromObject(v.Shoot), v.oldCACert)
+		v.verifyCABundleInKubeconfigSecret(ctx, g, v.GardenClient.Client(), client.ObjectKeyFromObject(v.Shoot), v.oldCACert)
 	}).Should(Succeed(), "old CA cert should be synced to garden")
 
 	By("Verify old CA secret in garden cluster")
@@ -165,7 +167,7 @@ func (v *CAVerifier) AfterPrepared(ctx context.Context) {
 		v.newCACert = []byte(strings.Replace(string(v.caBundle), string(v.oldCACert), "", -1))
 		Expect(v.newCACert).NotTo(BeEmpty())
 
-		verifyCABundleInKubeconfigSecret(ctx, g, v.GardenClient.Client(), client.ObjectKeyFromObject(v.Shoot), v.caBundle)
+		v.verifyCABundleInKubeconfigSecret(ctx, g, v.GardenClient.Client(), client.ObjectKeyFromObject(v.Shoot), v.caBundle)
 	}).Should(Succeed(), "CA bundle should be synced to garden")
 
 	By("Verify CA bundle secret in garden cluster")
@@ -251,7 +253,7 @@ func (v *CAVerifier) AfterCompleted(ctx context.Context) {
 		), "ca-cluster config map in garden should contain the same bundle as ca-bundle secret on seed")
 		g.Expect([]byte(configMap.Data["ca.crt"])).To(Equal(v.newCACert), "new CA bundle should only contain new CA cert")
 
-		verifyCABundleInKubeconfigSecret(ctx, g, v.GardenClient.Client(), client.ObjectKeyFromObject(v.Shoot), v.newCACert)
+		v.verifyCABundleInKubeconfigSecret(ctx, g, v.GardenClient.Client(), client.ObjectKeyFromObject(v.Shoot), v.newCACert)
 	}).Should(Succeed(), "new CA cert should be synced to garden")
 
 	By("Verify new CA secret in garden cluster")
@@ -289,7 +291,10 @@ func (v *CAVerifier) AfterCompleted(ctx context.Context) {
 // verifyCABundleInKubeconfigSecret asserts that the static-token kubeconfig secret contains the expected CA bundle,
 // i.e. that .data[ca.crt] is the same as in the ca-cluster config map.
 // KubeconfigVerifier takes care of asserting that the kubeconfig actually contains the same CA bundle as .data[ca.crt].
-func verifyCABundleInKubeconfigSecret(ctx context.Context, g Gomega, c client.Reader, shootKey client.ObjectKey, expectedBundle []byte) {
+func (v *CAVerifier) verifyCABundleInKubeconfigSecret(ctx context.Context, g Gomega, c client.Reader, shootKey client.ObjectKey, expectedBundle []byte) {
+	if !v.CheckStaticKubeconfig {
+		return
+	}
 	secret := &corev1.Secret{}
 	shootKey.Name = gardenerutils.ComputeShootProjectResourceName(shootKey.Name, "kubeconfig")
 	g.Expect(c.Get(ctx, shootKey, secret)).To(Succeed())

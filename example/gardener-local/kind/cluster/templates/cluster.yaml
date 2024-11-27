@@ -1,5 +1,10 @@
 apiVersion: kind.x-k8s.io/v1alpha4
 kind: Cluster
+featureGates:
+  StorageVersionMigrator: true
+  InformerResourceVersion: true
+runtimeConfig:
+  storagemigration.k8s.io/v1alpha1: true
 nodes:
 - role: control-plane
   image: {{ .Values.image }}

@@ -476,9 +476,9 @@ func (r *Reconciler) reconcile(
 			Dependencies: flow.NewTaskIDs(renewGardenletKubeconfigInAllSeeds),
 		})
 		rewriteResourcesAddLabel = g.Add(flow.Task{
-			Name: "Labeling encrypted resources after modification of encryption config or to re-encrypt them with new ETCD encryption key",
+			Name: "Run storage version migrations after modification of encryption config or to encrypt them with new ETCD encryption key",
 			Fn: flow.TaskFn(func(ctx context.Context) error {
-				return secretsrotation.RewriteEncryptedDataAddLabel(ctx, log, r.RuntimeClientSet.Client(), virtualClusterClientSet, secretsManager, r.GardenNamespace, namePrefix+v1beta1constants.DeploymentNameKubeAPIServer, resourcesToEncrypt, encryptedResources, defaultEncryptedGVKs)
+				return secretsrotation.RunStorageVersionMigrations(ctx, log, r.RuntimeClientSet.Client(), virtualClusterClientSet, secretsManager, r.GardenNamespace, namePrefix+v1beta1constants.DeploymentNameKubeAPIServer, resourcesToEncrypt, encryptedResources, defaultEncryptedGVKs)
 			}).RetryUntilTimeout(30*time.Second, 10*time.Minute),
 			SkipIf: helper.GetETCDEncryptionKeyRotationPhase(garden.Status.Credentials) != gardencorev1beta1.RotationPreparing &&
 				apiequality.Semantic.DeepEqual(resourcesToEncrypt, encryptedResources),
@@ -495,9 +495,9 @@ func (r *Reconciler) reconcile(
 			Dependencies: flow.NewTaskIDs(rewriteResourcesAddLabel),
 		})
 		_ = g.Add(flow.Task{
-			Name: "Removing label from re-encrypted resources after modification of encryption config or rotation of ETCD encryption key",
+			Name: "Removing label from virtual garden kube-apiserver deployment after modification of encryption config or rotation of ETCD encryption key",
 			Fn: flow.TaskFn(func(ctx context.Context) error {
-				if err := secretsrotation.RewriteEncryptedDataRemoveLabel(ctx, log, r.RuntimeClientSet.Client(), virtualClusterClientSet, r.GardenNamespace, namePrefix+v1beta1constants.DeploymentNameKubeAPIServer, resourcesToEncrypt, encryptedResources, defaultEncryptedGVKs); err != nil {
+				if err := secretsrotation.RemoveLabel(ctx, r.RuntimeClientSet.Client(), r.GardenNamespace, namePrefix+v1beta1constants.DeploymentNameKubeAPIServer); err != nil {
 					return err
 				}
 

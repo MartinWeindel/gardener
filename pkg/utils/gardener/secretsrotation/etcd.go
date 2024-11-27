@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/time/rate"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	storagemigrationv1alpha1 "k8s.io/api/storagemigration/v1alpha1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -21,6 +23,9 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
@@ -339,4 +344,165 @@ func getModifiedResources(resourcesToEncrypt []string, encryptedResources []stri
 	)
 
 	return sets.List(addedResources.Union(removedResources))
+}
+
+// RunStorageVersionMigrations initiates a rewrite of all encrypted resources by using StorageVersionMigration
+// resources. This function is useful for the ETCD encryption
+// key secret rotation which requires all encrypted data to be rewritten to ETCD so that they become encrypted with the
+// new key. After it's done, it snapshots ETCD so that we can restore backups in case we lose the cluster before the
+// next incremental snapshot has been taken.
+func RunStorageVersionMigrations(
+	ctx context.Context,
+	log logr.Logger,
+	runtimeClient client.Client,
+	clientSet kubernetes.Interface,
+	secretsManager secretsmanager.Interface,
+	namespace string,
+	name string,
+	resourcesToEncrypt []string,
+	encryptedResources []string,
+	defaultGVKs []schema.GroupVersionKind,
+) error {
+	// Check if we have to label the resources to rewrite the data.
+	meta := &metav1.PartialObjectMetadata{}
+	meta.SetGroupVersionKind(appsv1.SchemeGroupVersion.WithKind("Deployment"))
+	if err := runtimeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, meta); err != nil {
+		return err
+	}
+
+	if metav1.HasAnnotation(meta.ObjectMeta, AnnotationKeyStorageVersionMigrated) {
+		return nil
+	}
+
+	encryptedGVKs, message, err := GetResourcesForRewrite(clientSet.Kubernetes().Discovery(), resourcesToEncrypt, encryptedResources, defaultGVKs)
+	if err != nil {
+		return err
+	}
+
+	encryptedGVRs, err := resourcesToGVRs(clientSet.RESTConfig(), encryptedGVKs...)
+	if err != nil {
+		return err
+	}
+
+	etcdEncryptionKeySecret, found := secretsManager.Get(v1beta1constants.SecretNameETCDEncryptionKey, secretsmanager.Current)
+	if !found {
+		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameETCDEncryptionKey)
+	}
+
+	if err := runStorageVersionMigrations(
+		ctx,
+		log,
+		clientSet.Client(),
+		message,
+		etcdEncryptionKeySecret.Name,
+		encryptedGVRs...,
+	); err != nil {
+		return err
+	}
+
+	// If we have hit this point then we have run StorageVersionMigrations for all resources types. Now we can mark this step as "completed"
+	// (via an annotation) so that we do not start creating the StorageVersionMigrations in a future reconciliation in case the flow fails in
+	// "Removing the label" and labels were only partially removed.
+	return PatchAPIServerDeploymentMeta(ctx, runtimeClient, namespace, name, func(meta *metav1.PartialObjectMetadata) {
+		metav1.SetMetaDataAnnotation(&meta.ObjectMeta, AnnotationKeyStorageVersionMigrated, "true")
+	})
+}
+
+func resourcesToGVRs(config *rest.Config, gvks ...schema.GroupVersionKind) ([]schema.GroupVersionResource, error) {
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create discovery client: %s", err)
+	}
+	restMapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(discoveryClient))
+
+	gvrs := make([]schema.GroupVersionResource, 0, len(gvks))
+	for _, gvk := range gvks {
+		mapping, err := restMapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get REST mapping for %s: %s", gvk, err)
+		}
+		gvrs = append(gvrs, mapping.Resource)
+	}
+	return gvrs, nil
+}
+
+func runStorageVersionMigrations(
+	ctx context.Context,
+	log logr.Logger,
+	c client.Client,
+	message string,
+	keyName string,
+	gvrs ...schema.GroupVersionResource,
+) error {
+	for _, gvr := range gvrs {
+		obj := &storagemigrationv1alpha1.StorageVersionMigration{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: fmt.Sprintf("etcd-encryption-key-rotation-%s-", gvr.Resource),
+				Labels: map[string]string{
+					labelKeyRotationKeyName: keyName,
+				},
+			},
+			Spec: storagemigrationv1alpha1.StorageVersionMigrationSpec{
+				Resource: storagemigrationv1alpha1.GroupVersionResource{
+					Group:    gvr.Group,
+					Version:  gvr.Version,
+					Resource: gvr.Resource,
+				},
+			},
+		}
+
+		err := c.Create(ctx, obj)
+		if err != nil {
+			return fmt.Errorf("failed to create StorageVersionMigration for %s: %s", gvr, err)
+		}
+		log.Info(message+" (StorageVersionMigration started)", "gvr", gvr, "name", obj.Name)
+	outer:
+		for {
+			select {
+			case <-ctx.Done():
+				err = fmt.Errorf("context cancelled while waiting for StorageVersionMigration %s to succeed", obj.Name)
+				break
+			default:
+				if err = c.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+					break
+				}
+				for _, cond := range obj.Status.Conditions {
+					if cond.Type == storagemigrationv1alpha1.MigrationSucceeded && cond.Status == corev1.ConditionTrue {
+						break outer
+					}
+					if cond.Type == storagemigrationv1alpha1.MigrationFailed && cond.Status == corev1.ConditionTrue {
+						err = fmt.Errorf("StorageVersionMigration %s failed: %s", obj.Name, cond.Message)
+						break outer
+					}
+				}
+			}
+			time.Sleep(1 * time.Second)
+		}
+		if err != nil {
+			log.Error(err, message+" (StorageVersionMigration failed)", "gvr", gvr, "name", obj.Name)
+			return err
+		} else {
+			log.Info(message+" (StorageVersionMigration succeeded)", "gvr", gvr, "name", obj.Name)
+		}
+	}
+
+	// TODO (martinweindel) StorageVersionMigration are kept for transparency reasons. We should remove them before the next rotation.
+
+	return nil
+}
+
+// RemoveLabel removes the
+// label whose value is the name of the current ETCD encryption key secret. This function is useful for the ETCD
+// encryption key secret rotation which requires all encrypted data to be rewritten to ETCD so that they become
+// encrypted with the new key.
+func RemoveLabel(
+	ctx context.Context,
+	runtimeClient client.Client,
+	namespace string,
+	name string,
+) error {
+	return PatchAPIServerDeploymentMeta(ctx, runtimeClient, namespace, name, func(meta *metav1.PartialObjectMetadata) {
+		delete(meta.Annotations, AnnotationKeyEtcdSnapshotted)
+		delete(meta.Annotations, AnnotationKeyStorageVersionMigrated)
+	})
 }

@@ -46,8 +46,9 @@ func (r *Reconciler) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 		isCopyOfBackupsRequired bool
 		tasksWithErrors         []string
 
-		isRestoring   = operationType == gardencorev1beta1.LastOperationTypeRestore
-		skipReadiness = metav1.HasAnnotation(o.Shoot.GetInfo().ObjectMeta, v1beta1constants.AnnotationShootSkipReadiness)
+		isRestoring                = operationType == gardencorev1beta1.LastOperationTypeRestore
+		skipReadiness              = metav1.HasAnnotation(o.Shoot.GetInfo().ObjectMeta, v1beta1constants.AnnotationShootSkipReadiness)
+		useStorageVersionMigration = isStorageVersionMigrationEnabled(o.Shoot.GetInfo())
 	)
 
 	for _, lastError := range o.Shoot.GetInfo().Status.LastErrors {
@@ -442,8 +443,17 @@ func (r *Reconciler) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			Fn: flow.TaskFn(func(ctx context.Context) error {
 				return secretsrotation.RewriteEncryptedDataAddLabel(ctx, o.Logger, o.SeedClientSet.Client(), o.ShootClientSet, o.SecretsManager, o.Shoot.SeedNamespace, v1beta1constants.DeploymentNameKubeAPIServer, o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources, gardenerutils.DefaultGVKsForEncryption())
 			}).RetryUntilTimeout(30*time.Second, 10*time.Minute),
-			SkipIf: v1beta1helper.GetShootETCDEncryptionKeyRotationPhase(o.Shoot.GetInfo().Status.Credentials) != gardencorev1beta1.RotationPreparing &&
-				apiequality.Semantic.DeepEqual(o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources),
+			SkipIf: useStorageVersionMigration || (v1beta1helper.GetShootETCDEncryptionKeyRotationPhase(o.Shoot.GetInfo().Status.Credentials) != gardencorev1beta1.RotationPreparing &&
+				apiequality.Semantic.DeepEqual(o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources)),
+			Dependencies: flow.NewTaskIDs(initializeShootClients),
+		})
+		runStorageVersionMigrations = g.Add(flow.Task{
+			Name: "Run storage version migrations after modification of encryption config or to encrypt them with new ETCD encryption key",
+			Fn: flow.TaskFn(func(ctx context.Context) error {
+				return secretsrotation.RunStorageVersionMigrations(ctx, o.Logger, o.SeedClientSet.Client(), o.ShootClientSet, o.SecretsManager, o.Shoot.SeedNamespace, v1beta1constants.DeploymentNameKubeAPIServer, o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources, gardenerutils.DefaultGVKsForEncryption())
+			}).RetryUntilTimeout(30*time.Second, 10*time.Minute),
+			SkipIf: !useStorageVersionMigration || (v1beta1helper.GetShootETCDEncryptionKeyRotationPhase(o.Shoot.GetInfo().Status.Credentials) != gardencorev1beta1.RotationPreparing &&
+				apiequality.Semantic.DeepEqual(o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources)),
 			Dependencies: flow.NewTaskIDs(initializeShootClients),
 		})
 		snapshotETCD = g.Add(flow.Task{
@@ -454,7 +464,7 @@ func (r *Reconciler) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 			SkipIf: !allowBackup ||
 				(v1beta1helper.GetShootETCDEncryptionKeyRotationPhase(o.Shoot.GetInfo().Status.Credentials) != gardencorev1beta1.RotationPreparing &&
 					apiequality.Semantic.DeepEqual(o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources)),
-			Dependencies: flow.NewTaskIDs(rewriteResourcesAddLabel),
+			Dependencies: flow.NewTaskIDs(rewriteResourcesAddLabel, runStorageVersionMigrations),
 		})
 		_ = g.Add(flow.Task{
 			Name: "Removing label from resources after modification of encryption config or rotation of ETCD encryption key",
@@ -479,8 +489,35 @@ func (r *Reconciler) runReconcileShootFlow(ctx context.Context, o *operation.Ope
 
 				return nil
 			}).RetryUntilTimeout(30*time.Second, 10*time.Minute),
-			SkipIf: v1beta1helper.GetShootETCDEncryptionKeyRotationPhase(o.Shoot.GetInfo().Status.Credentials) != gardencorev1beta1.RotationCompleting &&
-				apiequality.Semantic.DeepEqual(o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources),
+			SkipIf: useStorageVersionMigration || (v1beta1helper.GetShootETCDEncryptionKeyRotationPhase(o.Shoot.GetInfo().Status.Credentials) != gardencorev1beta1.RotationCompleting &&
+				apiequality.Semantic.DeepEqual(o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources)),
+			Dependencies: flow.NewTaskIDs(initializeShootClients, snapshotETCD),
+		})
+		_ = g.Add(flow.Task{
+			Name: "Removing label from kube-apiserver deployment after modification of encryption config or rotation of ETCD encryption key",
+			Fn: flow.TaskFn(func(ctx context.Context) error {
+				if err := secretsrotation.RemoveLabel(ctx, o.SeedClientSet.Client(), o.Shoot.SeedNamespace, v1beta1constants.DeploymentNameKubeAPIServer); err != nil {
+					return err
+				}
+
+				if !apiequality.Semantic.DeepEqual(o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources) {
+					if err := o.Shoot.UpdateInfoStatus(ctx, o.GardenClient, true, func(shoot *gardencorev1beta1.Shoot) error {
+						var encryptedResources []string
+						if o.Shoot.GetInfo().Spec.Kubernetes.KubeAPIServer != nil {
+							encryptedResources = shared.GetResourcesForEncryptionFromConfig(o.Shoot.GetInfo().Spec.Kubernetes.KubeAPIServer.EncryptionConfig)
+						}
+
+						shoot.Status.EncryptedResources = encryptedResources
+						return nil
+					}); err != nil {
+						return err
+					}
+				}
+
+				return nil
+			}).RetryUntilTimeout(30*time.Second, 10*time.Minute),
+			SkipIf: !useStorageVersionMigration || (v1beta1helper.GetShootETCDEncryptionKeyRotationPhase(o.Shoot.GetInfo().Status.Credentials) != gardencorev1beta1.RotationCompleting &&
+				apiequality.Semantic.DeepEqual(o.Shoot.ResourcesToEncrypt, o.Shoot.EncryptedResources)),
 			Dependencies: flow.NewTaskIDs(initializeShootClients, snapshotETCD),
 		})
 		deployKubeScheduler = g.Add(flow.Task{
@@ -1003,4 +1040,26 @@ func removeTaskAnnotation(ctx context.Context, o *operation.Operation, generatio
 		controllerutils.RemoveTasks(shoot.Annotations, tasksToRemove...)
 		return nil
 	})
+}
+
+func isStorageVersionMigrationEnabled(shoot *gardencorev1beta1.Shoot) bool {
+	if shoot.Spec.Kubernetes.KubeAPIServer == nil || shoot.Spec.Kubernetes.KubeControllerManager == nil {
+		return false
+	}
+	if !shoot.Spec.Kubernetes.KubeAPIServer.FeatureGates["StorageVersionMigrator"] {
+		return false
+	}
+	if !shoot.Spec.Kubernetes.KubeAPIServer.FeatureGates["InformerResourceVersion"] {
+		return false
+	}
+	if !shoot.Spec.Kubernetes.KubeControllerManager.FeatureGates["StorageVersionMigrator"] {
+		return false
+	}
+	if !shoot.Spec.Kubernetes.KubeControllerManager.FeatureGates["InformerResourceVersion"] {
+		return false
+	}
+	if !shoot.Spec.Kubernetes.KubeAPIServer.RuntimeConfig["storagemigration.k8s.io/v1alpha1"] {
+		return false
+	}
+	return true
 }
