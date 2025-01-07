@@ -70,8 +70,9 @@ func Add(ctx context.Context, mgr manager.Manager, args AddArgs) error {
 		return err
 	}
 
-	predicates := extensionspredicate.AddTypePredicate(args.Predicates, args.Type)
+	predicates := extensionspredicate.AddTypePredicate(nil, args.Type)
 	predicates = append(predicates, extensionspredicate.HasClass(args.ExtensionClass))
+	predicates = append(predicates, args.Predicates...)
 
 	if args.IgnoreOperationAnnotation {
 		if err := ctrl.Watch(
