@@ -11,6 +11,8 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -34,14 +36,17 @@ type deployer struct {
 	runtimeClientSet kubernetes.Interface
 	recorder         record.EventRecorder
 
-	gardenNamespace string
-	helmRegistry    oci.Interface
+	helmRegistry oci.Interface
 }
 
 // Reconcile creates or updates the extension deployment in the garden runtime cluster.
 func (d *deployer) Reconcile(ctx context.Context, log logr.Logger, extension *operatorv1alpha1.Extension) error {
 	if !extensionDeploymentSpecified(extension) {
 		return d.Delete(ctx, log, extension)
+	}
+
+	if err := d.deleteExtensionManagedResourceInGardenNamespace(ctx, log, extension); err != nil {
+		return fmt.Errorf("failed ensuring old extension ManagedResource is deleted: %w", err)
 	}
 
 	if err := d.createOrUpdateResources(ctx, extension); err != nil {
@@ -84,17 +89,22 @@ func (d *deployer) createOrUpdateResources(ctx context.Context, extension *opera
 		}
 	}
 
-	renderedChart, err := d.runtimeClientSet.ChartRenderer().RenderArchive(archive, extension.Name, d.gardenNamespace, utils.MergeMaps(helmValues, gardenerValues))
+	namespace := namespaceName(extension)
+	if err := d.ensureNamespace(ctx, namespace); err != nil {
+		return fmt.Errorf("failed ensuring namespace %q: %w", namespace, err)
+	}
+
+	renderedChart, err := d.runtimeClientSet.ChartRenderer().RenderArchive(archive, extension.Name, namespace, utils.MergeMaps(helmValues, gardenerValues))
 	if err != nil {
 		return fmt.Errorf("failed rendering Helm chart %q: %w", extension.Spec.Deployment.ExtensionDeployment.Helm.OCIRepository.GetURL(), err)
 	}
 
 	mrName := managedResourceName(extension)
-	if err := managedresources.CreateForSeed(ctx, d.runtimeClientSet.Client(), d.gardenNamespace, mrName, false, renderedChart.AsSecretData()); err != nil {
+	if err := managedresources.CreateForSeed(ctx, d.runtimeClientSet.Client(), namespace, mrName, false, renderedChart.AsSecretData()); err != nil {
 		return fmt.Errorf("failed creating ManagedResource: %w", err)
 	}
 
-	if err := managedresources.WaitUntilHealthyAndNotProgressing(ctx, d.runtimeClientSet.Client(), d.gardenNamespace, mrName); err != nil {
+	if err := managedresources.WaitUntilHealthyAndNotProgressing(ctx, d.runtimeClientSet.Client(), namespace, mrName); err != nil {
 		return fmt.Errorf("failed waiting for ManagedResource to be healthy: %w", err)
 	}
 	return nil
@@ -102,20 +112,70 @@ func (d *deployer) createOrUpdateResources(ctx context.Context, extension *opera
 
 func (d *deployer) deleteResources(ctx context.Context, log logr.Logger, extension *operatorv1alpha1.Extension) error {
 	mrName := managedResourceName(extension)
+	namespace := namespaceName(extension)
 
-	log.Info("Deleting extension ManagedResource for runtime cluster if present", "managedResource", client.ObjectKey{Name: mrName, Namespace: d.gardenNamespace})
-	if err := managedresources.DeleteForSeed(ctx, d.runtimeClientSet.Client(), d.gardenNamespace, mrName); err != nil {
+	log.Info("Deleting extension ManagedResource for runtime cluster if present", "managedResource", client.ObjectKey{Name: mrName, Namespace: namespace})
+	if err := managedresources.DeleteForSeed(ctx, d.runtimeClientSet.Client(), namespace, mrName); err != nil {
 		return fmt.Errorf("failed deleting ManagedResource: %w", err)
 	}
 
-	if err := managedresources.WaitUntilDeleted(ctx, d.runtimeClientSet.Client(), d.gardenNamespace, mrName); err != nil {
+	if err := managedresources.WaitUntilDeleted(ctx, d.runtimeClientSet.Client(), namespace, mrName); err != nil {
 		return fmt.Errorf("failed waiting for ManagedResource to be deleted: %w", err)
+	}
+
+	if err := d.deleteNamespace(ctx, namespace); err != nil {
+		return fmt.Errorf("failed deleting namespace %q: %w", namespace, err)
+	}
+
+	return nil
+}
+
+func (d *deployer) deleteExtensionManagedResourceInGardenNamespace(ctx context.Context, log logr.Logger, extension *operatorv1alpha1.Extension) error {
+	mrName := managedResourceName(extension)
+	namespace := v1beta1constants.GardenNamespace
+
+	log.Info("Deleting old extension ManagedResource for runtime cluster if present", "managedResource", client.ObjectKey{Name: mrName, Namespace: namespace})
+	if err := managedresources.DeleteForSeed(ctx, d.runtimeClientSet.Client(), namespace, mrName); err != nil {
+		return fmt.Errorf("failed deleting old ManagedResource: %w", err)
+	}
+
+	if err := managedresources.WaitUntilDeleted(ctx, d.runtimeClientSet.Client(), namespace, mrName); err != nil {
+		return fmt.Errorf("failed waiting for old ManagedResource to be deleted: %w", err)
+	}
+
+	return nil
+}
+
+func (d *deployer) ensureNamespace(ctx context.Context, name string) error {
+	namespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+	if err := d.runtimeClientSet.Client().Create(ctx, namespace); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
+func (d *deployer) deleteNamespace(ctx context.Context, name string) error {
+	namespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+	if err := d.runtimeClientSet.Client().Delete(ctx, namespace); err != nil && !apierrors.IsNotFound(err) {
+		return err
 	}
 	return nil
 }
 
 func managedResourceName(extension *operatorv1alpha1.Extension) string {
 	return fmt.Sprintf("extension-%s-garden", extension.Name)
+}
+
+func namespaceName(extension *operatorv1alpha1.Extension) string {
+	return fmt.Sprintf("runtime-extension-%s", extension.Name)
 }
 
 func extensionDeploymentSpecified(extension *operatorv1alpha1.Extension) bool {
@@ -125,11 +185,10 @@ func extensionDeploymentSpecified(extension *operatorv1alpha1.Extension) bool {
 }
 
 // New creates a new runtime deployer.
-func New(runtimeClientSet kubernetes.Interface, recorder record.EventRecorder, gardenNamespace string, registry oci.Interface) Interface {
+func New(runtimeClientSet kubernetes.Interface, recorder record.EventRecorder, registry oci.Interface) Interface {
 	return &deployer{
 		runtimeClientSet: runtimeClientSet,
 		recorder:         recorder,
-		gardenNamespace:  gardenNamespace,
 		helmRegistry:     registry,
 	}
 }

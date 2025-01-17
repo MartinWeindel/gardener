@@ -75,7 +75,7 @@ func (r *Reconciler) AddToManager(mgr manager.Manager) error {
 
 	r.admission = admission.New(r.RuntimeClientSet, r.Recorder, r.GardenNamespace, r.HelmRegistry)
 	r.controllerRegistration = controllerregistration.New(r.RuntimeClientSet.Client(), r.Recorder, r.GardenNamespace)
-	r.runtime = extensionruntime.New(r.RuntimeClientSet, r.Recorder, r.GardenNamespace, r.HelmRegistry)
+	r.runtime = extensionruntime.New(r.RuntimeClientSet, r.Recorder, r.HelmRegistry)
 
 	return builder.
 		ControllerManagedBy(mgr).

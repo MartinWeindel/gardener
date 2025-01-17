@@ -33,6 +33,7 @@ import (
 	ocifake "github.com/gardener/gardener/pkg/utils/oci/fake"
 	"github.com/gardener/gardener/pkg/utils/retry"
 	"github.com/gardener/gardener/pkg/utils/test"
+	. "github.com/gardener/gardener/pkg/utils/test/matchers"
 )
 
 var _ = Describe("Deployment", func() {
@@ -66,7 +67,7 @@ var _ = Describe("Deployment", func() {
 		runtimeClient = fakeclient.NewClientBuilder().WithScheme(operatorclient.RuntimeScheme).Build()
 		runtimeClientSet = kubernetesfake.NewClientSetBuilder().WithChartRenderer(chartRenderer).WithClient(runtimeClient).Build()
 
-		runtime = New(runtimeClientSet, &record.FakeRecorder{}, "garden", ociRegistry)
+		runtime = New(runtimeClientSet, &record.FakeRecorder{}, ociRegistry)
 
 		extensionName = "test-extension"
 		extension = &operatorv1alpha1.Extension{
@@ -97,7 +98,7 @@ var _ = Describe("Deployment", func() {
 			Expect(runtime.Reconcile(ctx, log, extension)).To(MatchError(`failed pulling Helm chart from OCI repository "local-extension-runtime:v1.2.3": not found`))
 		})
 
-		It("should succeed reconciling the extension resources", func() {
+		testReconcile := func() {
 			extension.Spec.Deployment.ExtensionDeployment.RuntimeClusterValues = &apiextensionsv1.JSON{
 				Raw: []byte(`{"foo": "bar"}`),
 			}
@@ -114,14 +115,18 @@ var _ = Describe("Deployment", func() {
 				},
 			}
 
-			chartRenderer.EXPECT().RenderArchive([]byte("extension-chart"), extension.Name, "garden", expectedValues).Return(&chartrenderer.RenderedChart{}, nil)
+			chartRenderer.EXPECT().RenderArchive([]byte("extension-chart"), extension.Name, "runtime-extension-test-extension", expectedValues).Return(&chartrenderer.RenderedChart{}, nil)
 
 			defer test.WithVar(&retry.Until, func(_ context.Context, _ time.Duration, _ retry.Func) error {
 				return nil
 			})()
 
 			Expect(runtime.Reconcile(ctx, log, extension)).To(Succeed())
-			Expect(runtimeClient.Get(ctx, client.ObjectKey{Name: fmt.Sprintf("extension-%s-garden", extensionName), Namespace: "garden"}, &resourcesv1alpha1.ManagedResource{})).To(Succeed())
+			Expect(runtimeClient.Get(ctx, client.ObjectKey{Name: fmt.Sprintf("extension-%s-garden", extensionName), Namespace: "runtime-extension-test-extension"}, &resourcesv1alpha1.ManagedResource{})).To(Succeed())
+		}
+
+		It("should succeed reconciling the extension resources", func() {
+			testReconcile()
 		})
 
 		It("should succeed if extension deployment is not defined", func() {
@@ -133,6 +138,22 @@ var _ = Describe("Deployment", func() {
 			Expect(runtimeClient.List(ctx, mrList)).To(Succeed())
 			Expect(mrList.Items).To(BeEmpty())
 		})
+
+		It("should succeed if extension was deployed before in the garden namespace", func() {
+			Expect(runtimeClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("extension-%s-garden", extensionName), Namespace: "garden"}})).To(Succeed())
+			Expect(runtimeClient.Create(ctx, &resourcesv1alpha1.ManagedResource{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("extension-%s-garden", extensionName), Namespace: "garden"}, Spec: resourcesv1alpha1.ManagedResourceSpec{SecretRefs: []corev1.LocalObjectReference{{Name: fmt.Sprintf("extension-%s-garden", extensionName)}}}})).To(Succeed())
+
+			testReconcile()
+
+			mrList := &resourcesv1alpha1.ManagedResourceList{}
+			Expect(runtimeClient.List(ctx, mrList, client.InNamespace("garden"))).To(Succeed())
+			Expect(mrList.Items).To(BeEmpty())
+
+			secretList := &corev1.SecretList{}
+			Expect(runtimeClient.List(ctx, secretList, client.InNamespace("garden"))).To(Succeed())
+			Expect(secretList.Items).To(BeEmpty())
+		})
+
 	})
 
 	Describe("#Delete", func() {
@@ -145,8 +166,11 @@ var _ = Describe("Deployment", func() {
 		})
 
 		It("should succeed if extension was deployed before", func() {
-			Expect(runtimeClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("extension-%s-garden", extensionName), Namespace: "garden"}})).To(Succeed())
-			Expect(runtimeClient.Create(ctx, &resourcesv1alpha1.ManagedResource{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("extension-%s-garden", extensionName), Namespace: "garden"}, Spec: resourcesv1alpha1.ManagedResourceSpec{SecretRefs: []corev1.LocalObjectReference{{Name: fmt.Sprintf("extension-%s-garden", extensionName)}}}})).To(Succeed())
+			namespace := fmt.Sprintf("runtime-extension-%s", extensionName)
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+			Expect(runtimeClient.Create(ctx, ns)).To(Succeed())
+			Expect(runtimeClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("extension-%s-garden", extensionName), Namespace: namespace}})).To(Succeed())
+			Expect(runtimeClient.Create(ctx, &resourcesv1alpha1.ManagedResource{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("extension-%s-garden", extensionName), Namespace: namespace}, Spec: resourcesv1alpha1.ManagedResourceSpec{SecretRefs: []corev1.LocalObjectReference{{Name: fmt.Sprintf("extension-%s-garden", extensionName)}}}})).To(Succeed())
 
 			Expect(runtime.Delete(ctx, log, extension)).To(Succeed())
 
@@ -157,6 +181,8 @@ var _ = Describe("Deployment", func() {
 			secretList := &corev1.SecretList{}
 			Expect(runtimeClient.List(ctx, secretList)).To(Succeed())
 			Expect(secretList.Items).To(BeEmpty())
+
+			Expect(runtimeClient.Get(ctx, client.ObjectKeyFromObject(ns), ns)).To(BeNotFoundError())
 		})
 	})
 })
