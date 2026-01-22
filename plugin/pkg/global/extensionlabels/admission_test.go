@@ -249,7 +249,8 @@ var _ = Describe("ExtensionLabels tests", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(workloadIdentity.ObjectMeta.Labels).To(Equal(map[string]string{
-				"provider.extensions.gardener.cloud/" + providerType1: "true",
+				"provider.extensions.gardener.cloud/" + providerType1:    "true",
+				"extensions.extensions.gardener.cloud/shoot-dns-service": "true",
 			}))
 		})
 
@@ -267,7 +268,8 @@ var _ = Describe("ExtensionLabels tests", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(newWorkloadIdentity.ObjectMeta.Labels).To(Equal(map[string]string{
-				"provider.extensions.gardener.cloud/" + providerType2: "true",
+				"provider.extensions.gardener.cloud/" + providerType2:    "true",
+				"extensions.extensions.gardener.cloud/shoot-dns-service": "true",
 			}))
 		})
 	})

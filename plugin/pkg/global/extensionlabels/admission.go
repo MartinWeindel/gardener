@@ -171,6 +171,7 @@ func (e *ExtensionLabels) Admit(_ context.Context, a admission.Attributes, _ adm
 		removeLabels(&workloadIdentity.ObjectMeta)
 		providerType := workloadIdentity.Spec.TargetSystem.Type
 		metav1.SetMetaDataLabel(&workloadIdentity.ObjectMeta, v1beta1constants.LabelExtensionProviderTypePrefix+providerType, "true")
+		metav1.SetMetaDataLabel(&workloadIdentity.ObjectMeta, v1beta1constants.LabelExtensionExtensionTypePrefix+"shoot-dns-service", "true")
 
 	case core.Kind("Shoot"):
 		shoot, ok := a.GetObject().(*core.Shoot)
