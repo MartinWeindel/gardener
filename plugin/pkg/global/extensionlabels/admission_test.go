@@ -238,20 +238,28 @@ var _ = Describe("ExtensionLabels tests", func() {
 			providerType2 = "provider-type-2"
 		)
 
-		It("should add the correct label on creation", func() {
-			workloadIdentity := &security.WorkloadIdentity{ObjectMeta: metav1.ObjectMeta{Name: "test-wi"}, Spec: security.WorkloadIdentitySpec{
-				TargetSystem: security.TargetSystem{
-					Type: providerType1,
-				},
-			}}
-			attrs := admission.NewAttributesRecord(workloadIdentity, nil, security.Kind("WorkloadIdentity").WithVersion("version"), "", workloadIdentity.Name, security.Resource("WorkloadIdentity").WithVersion("version"), "", admission.Create, &metav1.CreateOptions{}, false, nil)
-			err := admissionHandler.Admit(context.TODO(), attrs, nil)
+		DescribeTable("should add the correct label on creation",
+			func(providerType string, expectShootDNSServerLabel bool) {
+				workloadIdentity := &security.WorkloadIdentity{ObjectMeta: metav1.ObjectMeta{Name: "test-wi"}, Spec: security.WorkloadIdentitySpec{
+					TargetSystem: security.TargetSystem{
+						Type: providerType,
+					},
+				}}
+				attrs := admission.NewAttributesRecord(workloadIdentity, nil, security.Kind("WorkloadIdentity").WithVersion("version"), "", workloadIdentity.Name, security.Resource("WorkloadIdentity").WithVersion("version"), "", admission.Create, &metav1.CreateOptions{}, false, nil)
+				err := admissionHandler.Admit(context.TODO(), attrs, nil)
 
-			Expect(err).NotTo(HaveOccurred())
-			Expect(workloadIdentity.ObjectMeta.Labels).To(Equal(map[string]string{
-				"provider.extensions.gardener.cloud/" + providerType1: "true",
-			}))
-		})
+				Expect(err).NotTo(HaveOccurred())
+				expectedLabels := map[string]string{"provider.extensions.gardener.cloud/" + providerType: "true"}
+				if expectShootDNSServerLabel {
+					expectedLabels["extensions.extensions.gardener.cloud/shoot-dns-service"] = "true"
+				}
+				Expect(workloadIdentity.ObjectMeta.Labels).To(Equal(expectedLabels))
+			},
+			Entry("provider-type-1", providerType1, false),
+			Entry("gcp", "gcp", true),
+			Entry("azure", "azure", true),
+			Entry("aws", "aws", true),
+		)
 
 		It("should add the correct label on update", func() {
 			workloadIdentity := &security.WorkloadIdentity{

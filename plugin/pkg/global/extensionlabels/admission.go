@@ -171,6 +171,10 @@ func (e *ExtensionLabels) Admit(_ context.Context, a admission.Attributes, _ adm
 		removeLabels(&workloadIdentity.ObjectMeta)
 		providerType := workloadIdentity.Spec.TargetSystem.Type
 		metav1.SetMetaDataLabel(&workloadIdentity.ObjectMeta, v1beta1constants.LabelExtensionProviderTypePrefix+providerType, "true")
+		// Add shoot-dns-service label for supported providers
+		if slices.Contains([]string{"aws", "azure", "gcp"}, providerType) {
+			metav1.SetMetaDataLabel(&workloadIdentity.ObjectMeta, v1beta1constants.LabelExtensionExtensionTypePrefix+"shoot-dns-service", "true")
+		}
 
 	case core.Kind("Shoot"):
 		shoot, ok := a.GetObject().(*core.Shoot)
