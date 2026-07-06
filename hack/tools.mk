@@ -216,7 +216,7 @@ $(LOGCHECK): $(call tool_version_file,$(LOGCHECK),$(LOGCHECK_VERSION)) $(GOLANGC
 	cd $(GARDENER_HACK_DIR)/tools/logcheck; GOTOOLCHAIN=$(shell go version -m -json $(GOLANGCI_LINT) | jq -r .GoVersion) CGO_ENABLED=1 go build -o $(abspath $(LOGCHECK)) -buildmode=plugin ./plugin
 else
 $(LOGCHECK): $(call tool_version_file,$(LOGCHECK),$(LOGCHECK_VERSION)) $(GOLANGCI_LINT)
-	GOTOOLCHAIN=$(shell go version -m -json $(GOLANGCI_LINT) | jq -r .GoVersion) CGO_ENABLED=1 go build -o $(LOGCHECK) -buildmode=plugin $(TOOLS_DIR)/logcheck/plugin
+	cd $(GARDENER_HACK_DIR)/tools/logcheck; GOTOOLCHAIN=$(shell go version -m -json $(GOLANGCI_LINT) | jq -r .GoVersion) CGO_ENABLED=1 go build -o $(abspath $(LOGCHECK)) -buildmode=plugin $(abspath $(TOOLS_DIR)/logcheck/plugin)
 endif
 
 $(PROMTOOL): $(call tool_version_file,$(PROMTOOL),$(PROMTOOL_VERSION))
