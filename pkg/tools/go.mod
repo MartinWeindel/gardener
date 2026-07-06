@@ -1,4 +1,4 @@
-module github.com/gardener/gardener/pkg/internal/tools
+module github.com/gardener/gardener/pkg/tools
 
 go 1.25.9
 
