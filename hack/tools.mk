@@ -220,6 +220,7 @@ $(LOGCHECK): $(call tool_version_file,$(LOGCHECK),$(LOGCHECK_VERSION)) $(GOLANGC
 	cd $(GARDENER_HACK_DIR)/tools/logcheck; GOTOOLCHAIN=$(shell go version -m -json $(GOLANGCI_LINT) | jq -r .GoVersion) CGO_ENABLED=1 go build -o $(abspath $(LOGCHECK)) -buildmode=plugin ./plugin
 else
 $(LOGCHECK): $(call tool_version_file,$(LOGCHECK),$(LOGCHECK_VERSION)) $(GOLANGCI_LINT)
+	@[ -n "$(GARDENER_LOGCHECK_DIR)" ] || { echo "GARDENER_LOGCHECK_DIR is not set, cannot build logcheck plugin. Consider adding github.com/gardener/gardener/hack/tools/logcheck as dependency if errors occur." >&2; exit 1; }
 	GOTOOLCHAIN=$(shell go version -m -json $(GOLANGCI_LINT) | jq -r .GoVersion) CGO_ENABLED=1 go build -o $(LOGCHECK) -buildmode=plugin $(GARDENER_LOGCHECK_DIR)/plugin
 endif
 
