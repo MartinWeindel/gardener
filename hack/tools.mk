@@ -16,7 +16,7 @@ GARDENER_HACK_DIR          := ./hack
 else
 # dependency on github.com/gardener/gardener is optional.
 # If other repos don't use it and the project doesn't depend on the package, silence the error to minimize confusion.
-GARDENER_HACK_DIR          := $(shell go list -m -f "{{.Dir}}" github.com/gardener/gardener 2>/dev/null)/hack
+GARDENER_HACK_DIR          := $(shell go list -m -f "{{.Dir}}" github.com/gardener/gardener/hack/tools/tool 2>/dev/null)/../..
 MODFILE_TOOL_MOD           := -modfile $(GARDENER_HACK_DIR)/tools/tool/go.mod
 SET_GOWORK                 := GOWORK=off
 endif
